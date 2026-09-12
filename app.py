@@ -75,6 +75,10 @@ st.markdown("""
         box-shadow: 0 0 34px rgba(255, 202, 46, .10), inset 0 1px rgba(255,255,255,.05); }
     .hero h1 { margin: 0; color: #ffe780; font-size: 2.5rem; letter-spacing: .02em; text-shadow: 0 0 15px rgba(255, 213, 74, .36); }
     .hero p { margin: .4rem 0 0; color: #d1dae4; font-size: 1.02rem; }
+    .hero-kicker { color:#ffd54a !important; font-size:.72rem !important; font-weight:800; letter-spacing:.16em; margin:0 0 .3rem !important; }
+    .control-note { color:#a8b4c2; font-size:.84rem; margin:-.3rem 0 .8rem; }
+    .home-tab-title { color:#ffe780; font-size:1.15rem; font-weight:800; letter-spacing:.045em; margin:.45rem 0 .15rem; }
+    .home-tab-subtitle { color:#9fb0c0; font-size:.82rem; margin:0 0 .9rem; }
     [data-testid="stMetric"] { background: rgba(13, 27, 42, .92); border: 1px solid var(--line);
         padding: .9rem; border-radius: 14px; box-shadow: inset 0 1px rgba(255,255,255,.04); }
     [data-testid="stMetricValue"] { color: #ffe780; font-family: "Avenir Next", Avenir, sans-serif; }
@@ -127,6 +131,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.markdown("""
 <div class="hero">
+  <p class="hero-kicker">MATCH INTELLIGENCE · LIVE DATA</p>
   <h1>⚽ MatchScope</h1>
   <p>Analisi squadra per squadra, probabilità trasparenti e pronostici costruiti sui dati della sfida.</p>
 </div>
@@ -170,68 +175,66 @@ def render_standing(standing):
 
 
 st.subheader("◈ Centro operativo live")
-st.caption("Notizie e classifiche aggiornate, disponibili anche senza caricare un file CSV.")
-news_input, refresh_news_col, refresh_table_col = st.columns([3, 1, 1])
-with news_input:
-    homepage_topic = st.text_input("Squadra o argomento", value="Serie A", key="homepage_news_topic")
-with refresh_news_col:
-    st.write("")
-    refresh_homepage_news = st.button("↻ Notizie", use_container_width=True, key="refresh_homepage_news")
-with refresh_table_col:
-    st.write("")
-    refresh_homepage_tables = st.button("↻ Classifiche", use_container_width=True, key="refresh_homepage_tables")
+st.markdown('<div class="control-note">Scegli la vista che ti serve: aggiornamenti editoriali oppure gerarchie dei campionati.</div>', unsafe_allow_html=True)
 
-if refresh_homepage_news:
-    cached_match_news.clear()
-if refresh_homepage_tables:
-    cached_live_standings.clear()
+home_news_tab, home_standings_tab = st.tabs(["📰 Notizie", "🏆 Classifiche"])
 
-try:
-    with st.spinner("Sincronizzo il centro operativo…"):
-        homepage_news = cached_match_news(homepage_topic, "")
-except (requests.RequestException, ValueError):
-    homepage_news = []
+with home_news_tab:
+    st.markdown('<div class="home-tab-title">Notizie in primo piano</div><div class="home-tab-subtitle">Cerca una squadra o un argomento e segui gli aggiornamenti più recenti.</div>', unsafe_allow_html=True)
+    news_input, refresh_news_col = st.columns([4, 1])
+    with news_input:
+        homepage_topic = st.text_input("Squadra o argomento", value="Serie A", key="homepage_news_topic")
+    with refresh_news_col:
+        st.write("")
+        refresh_homepage_news = st.button("↻ Aggiorna", use_container_width=True, key="refresh_homepage_news")
 
-try:
-    live_standings = cached_live_standings()
-except requests.RequestException:
-    live_standings = {}
+    if refresh_homepage_news:
+        cached_match_news.clear()
+    try:
+        with st.spinner("Aggiorno le notizie…"):
+            homepage_news = cached_match_news(homepage_topic, "")
+    except (requests.RequestException, ValueError):
+        homepage_news = []
 
-left_home, center_home, right_home = st.columns([1.05, 1.55, 1.05], gap="medium")
-with left_home:
-    st.markdown("#### ◀ Classifiche")
-    for league_key in ("serie_a", "serie_b", "laliga"):
-        standing = live_standings.get(league_key)
-        if standing:
-            st.markdown(render_standing(standing), unsafe_allow_html=True)
-
-with center_home:
-    st.markdown("#### 📰 Ultime notizie")
     if homepage_news:
-        for item in homepage_news[:3]:
+        news_columns = st.columns(3, gap="medium")
+        for column, item in zip(news_columns, homepage_news[:3]):
             safe_title = escape(item["title"])
             safe_source = escape(item["source"])
             safe_date = escape(item["published"])
             safe_link = escape(item["link"], quote=True)
-            st.markdown(
-                f'<div class="news-card">'
-                f'<div class="news-card-title">{safe_title}</div>'
-                f'<div class="news-card-meta">{safe_source} · {safe_date}</div>'
-                f'<a class="news-card-link" href="{safe_link}" target="_blank" rel="noopener noreferrer">Leggi articolo ↗</a>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+            with column:
+                st.markdown(
+                    f'<div class="news-card">'
+                    f'<div class="news-card-title">{safe_title}</div>'
+                    f'<div class="news-card-meta">{safe_source} · {safe_date}</div>'
+                    f'<a class="news-card-link" href="{safe_link}" target="_blank" rel="noopener noreferrer">Leggi articolo ↗</a>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
     else:
         st.info("Le notizie non sono raggiungibili al momento.")
 
-with right_home:
-    st.markdown("#### Classifiche ▶")
-    for league_key in ("bundesliga", "ligue_1", "premier_league"):
-        standing = live_standings.get(league_key)
-        if standing:
-            st.markdown(render_standing(standing), unsafe_allow_html=True)
+with home_standings_tab:
+    st.markdown('<div class="home-tab-title">Classifiche live</div><div class="home-tab-subtitle">Prime cinque squadre, partite giocate e punti per i campionati selezionati.</div>', unsafe_allow_html=True)
+    refresh_homepage_tables = st.button("↻ Aggiorna classifiche", key="refresh_homepage_tables")
+    if refresh_homepage_tables:
+        cached_live_standings.clear()
+    try:
+        with st.spinner("Aggiorno le classifiche…"):
+            live_standings = cached_live_standings()
+    except requests.RequestException:
+        live_standings = {}
 
-st.caption("Classifiche: dati live ESPN · le prime cinque squadre per ogni campionato.")
+    league_keys = ("serie_a", "serie_b", "laliga", "bundesliga", "ligue_1", "premier_league")
+    for row_keys in (league_keys[:3], league_keys[3:]):
+        standing_columns = st.columns(3, gap="medium")
+        for column, league_key in zip(standing_columns, row_keys):
+            standing = live_standings.get(league_key)
+            with column:
+                if standing:
+                    st.markdown(render_standing(standing), unsafe_allow_html=True)
+    st.caption("Dati live ESPN · le prime cinque squadre di ogni campionato.")
 
 st.divider()
 
