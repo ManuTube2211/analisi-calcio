@@ -507,12 +507,15 @@ def fetch_match_news(home_team: str, away_team: str, limit: int = 10) -> list[Di
 # ============================================================
 
 LIVE_LEAGUES = {
-    "serie_a": {"name": "Serie A", "country": "Italia", "espn_code": "ita.1"},
-    "serie_b": {"name": "Serie B", "country": "Italia", "espn_code": "ita.2"},
-    "laliga": {"name": "LaLiga", "country": "Spagna", "espn_code": "esp.1"},
-    "bundesliga": {"name": "Bundesliga", "country": "Germania", "espn_code": "ger.1"},
-    "ligue_1": {"name": "Ligue 1", "country": "Francia", "espn_code": "fra.1"},
-    "premier_league": {"name": "Premier League", "country": "Inghilterra", "espn_code": "eng.1"},
+    "serie_a": {"name": "Serie A", "country": "Italia", "espn_code": "ita.1", "limit": 5},
+    "serie_b": {"name": "Serie B", "country": "Italia", "espn_code": "ita.2", "limit": 5},
+    "laliga": {"name": "LaLiga", "country": "Spagna", "espn_code": "esp.1", "limit": 5},
+    "bundesliga": {"name": "Bundesliga", "country": "Germania", "espn_code": "ger.1", "limit": 5},
+    "ligue_1": {"name": "Ligue 1", "country": "Francia", "espn_code": "fra.1", "limit": 5},
+    "premier_league": {"name": "Premier League", "country": "Inghilterra", "espn_code": "eng.1", "limit": 5},
+    "champions_league": {"name": "Champions League", "country": "UEFA", "espn_code": "uefa.champions", "limit": 8},
+    "europa_league": {"name": "Europa League", "country": "UEFA", "espn_code": "uefa.europa", "limit": 8},
+    "conference_league": {"name": "Conference League", "country": "UEFA", "espn_code": "uefa.europa.conf", "limit": 8},
 }
 
 
@@ -543,13 +546,13 @@ def _fetch_one_live_standing(league_key: str, limit: int) -> Dict[str, object]:
         return {**league, "rows": [], "error": str(exc)}
 
 
-def fetch_live_standings(limit: int = 5) -> Dict[str, Dict[str, object]]:
-    """Recupera in parallelo le prime posizioni dei campionati scelti."""
+def fetch_live_standings() -> Dict[str, Dict[str, object]]:
+    """Recupera in parallelo le prime posizioni, con limiti per competizione."""
     results: Dict[str, Dict[str, object]] = {}
     with ThreadPoolExecutor(max_workers=len(LIVE_LEAGUES)) as executor:
         futures = {
-            executor.submit(_fetch_one_live_standing, key, limit): key
-            for key in LIVE_LEAGUES
+            executor.submit(_fetch_one_live_standing, key, int(league["limit"])): key
+            for key, league in LIVE_LEAGUES.items()
         }
         for future in as_completed(futures):
             key = futures[future]

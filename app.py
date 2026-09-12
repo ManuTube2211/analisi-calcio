@@ -148,8 +148,8 @@ def cached_match_news(home_team: str, away_team: str):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def cached_live_standings():
-    """Cache di dieci minuti per evitare sei chiamate live a ogni interazione."""
-    return fetch_live_standings(limit=5)
+    """Cache di dieci minuti per evitare chiamate live a ogni interazione."""
+    return fetch_live_standings()
 
 
 def render_standing(standing):
@@ -216,7 +216,7 @@ with home_news_tab:
         st.info("Le notizie non sono raggiungibili al momento.")
 
 with home_standings_tab:
-    st.markdown('<div class="home-tab-title">Classifiche live</div><div class="home-tab-subtitle">Prime cinque squadre, partite giocate e punti per i campionati selezionati.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="home-tab-title">Classifiche live</div><div class="home-tab-subtitle">Campionati nazionali e competizioni UEFA, con partite giocate e punti aggiornati.</div>', unsafe_allow_html=True)
     refresh_homepage_tables = st.button("↻ Aggiorna classifiche", key="refresh_homepage_tables")
     if refresh_homepage_tables:
         cached_live_standings.clear()
@@ -226,15 +226,19 @@ with home_standings_tab:
     except requests.RequestException:
         live_standings = {}
 
-    league_keys = ("serie_a", "serie_b", "laliga", "bundesliga", "ligue_1", "premier_league")
-    for row_keys in (league_keys[:3], league_keys[3:]):
+    league_keys = (
+        "serie_a", "serie_b", "laliga",
+        "bundesliga", "ligue_1", "premier_league",
+        "champions_league", "europa_league", "conference_league",
+    )
+    for row_keys in (league_keys[:3], league_keys[3:6], league_keys[6:]):
         standing_columns = st.columns(3, gap="medium")
         for column, league_key in zip(standing_columns, row_keys):
             standing = live_standings.get(league_key)
             with column:
                 if standing:
                     st.markdown(render_standing(standing), unsafe_allow_html=True)
-    st.caption("Dati live ESPN · le prime cinque squadre di ogni campionato.")
+    st.caption("Dati live ESPN · prime 5 dei campionati nazionali e prime 8 delle competizioni UEFA.")
 
 st.divider()
 
