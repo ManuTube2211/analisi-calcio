@@ -425,9 +425,17 @@ def match_recommendations(
     outcome_names = {"1": "Vittoria casa (1)", "X": "Pareggio (X)", "2": "Vittoria trasferta (2)"}
 
     over_25 = float(markets["Over 2.5"])
-    goals_label, goals_probability = (
-        ("Over 2.5", over_25) if over_25 >= 0.5 else ("Under 2.5", 1 - over_25)
-    )
+    under_25 = 1 - over_25
+    # Un semplice taglio al 50% etichetta come Under anche match quasi in
+    # perfetto equilibrio (ad es. 51% Under / 49% Over). Richiediamo invece
+    # un vantaggio minimo di quattro punti percentuali prima di proporre una
+    # direzione: il modello resta informativo senza forzare un Under debole.
+    if over_25 >= 0.54:
+        goals_label, goals_probability = "Over 2.5", over_25
+    elif under_25 >= 0.54:
+        goals_label, goals_probability = "Under 2.5", under_25
+    else:
+        goals_label, goals_probability = "Linea 2.5 equilibrata", max(over_25, under_25)
 
     btts_yes = float(markets["btts"])
     btts_label, btts_probability = (
@@ -452,7 +460,7 @@ def match_recommendations(
         "gol": {
             "label": goals_label,
             "probability": goals_probability,
-            "confidence": confidence(goals_probability),
+            "confidence": "Equilibrata" if goals_label == "Linea 2.5 equilibrata" else confidence(goals_probability),
         },
         "btts": {
             "label": btts_label,
