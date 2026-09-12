@@ -395,13 +395,67 @@ def predict_goals_distribution(
     rho: float = 0.05,
     max_goals: int = 8,
     mode: str = "hybrid",
+    calibration_factor: float = 1.0,
 ) -> Dict[str, object]:
+    """Distribuzione dei gol con una calibrazione globale opzionale."""
     lam_h, lam_a = expected_goals(df, home_team, away_team, mode=mode)
+    calibration_factor = float(np.clip(calibration_factor, 0.92, 1.08))
+    lam_h = float(np.clip(lam_h * calibration_factor, 0.2, 3.5))
+    lam_a = float(np.clip(lam_a * calibration_factor, 0.2, 3.5))
     P = dixon_coles_matrix(lam_h, lam_a, rho=rho, max_goals=max_goals)
     out = goal_market_probs(P)
     out["lambda_home"] = lam_h
     out["lambda_away"] = lam_a
     return out
+
+
+def adaptive_goal_calibration(
+    df: pd.DataFrame,
+    validation_matches: int = 60,
+    min_history_matches: int = 20,
+) -> Dict[str, object]:
+    """Calibra i gol usando solo risultati precedenti a ogni match verificato.
+
+    Quando il CSV viene aggiornato, il fattore viene ricalcolato: il modello
+    evolve sui nuovi risultati senza usare informazioni del futuro.
+    """
+    games = df.sort_values("date").reset_index(drop=True)
+    if len(games) < min_history_matches + 8:
+        return {
+            "enabled": False, "factor": 1.0, "sample_size": 0,
+            "message": f"Servono almeno {min_history_matches + 8} partite per l'apprendimento controllato.",
+        }
+
+    start = max(min_history_matches, len(games) - validation_matches)
+    expected_totals: list[float] = []
+    actual_totals: list[float] = []
+    over_under_hits: list[bool] = []
+    for index in range(start, len(games)):
+        history = games.iloc[:index]
+        match = games.iloc[index]
+        lam_h, lam_a = expected_goals(history, match["home_team"], match["away_team"])
+        predicted_total = lam_h + lam_a
+        actual_total = float(match["home_score"] + match["away_score"])
+        expected_totals.append(predicted_total)
+        actual_totals.append(actual_total)
+        over_under_hits.append((predicted_total >= 2.5) == (actual_total >= 3.0))
+
+    predicted_mean = float(np.mean(expected_totals))
+    actual_mean = float(np.mean(actual_totals))
+    raw_factor = actual_mean / predicted_mean if predicted_mean > 0 else 1.0
+    reliability = min(0.75, len(actual_totals) / 100)
+    factor = float(np.clip(1 + (raw_factor - 1) * reliability, 0.92, 1.08))
+    mae = float(np.mean(np.abs(np.array(actual_totals) - np.array(expected_totals))))
+    return {
+        "enabled": True,
+        "factor": factor,
+        "sample_size": len(actual_totals),
+        "predicted_goals": predicted_mean,
+        "actual_goals": actual_mean,
+        "goal_mae": mae,
+        "ou_accuracy": float(np.mean(over_under_hits)),
+        "message": "Calibrazione aggiornata dai risultati presenti nel CSV.",
+    }
  
  
 def predict_1x2_from_matrix(P: np.ndarray) -> Dict[str, float]:

@@ -18,6 +18,7 @@ from analysis import (
     PointSchema,
     export_excel_bytes,
     predict_goals_distribution,
+    adaptive_goal_calibration,
     predict_1x2_from_matrix,
     match_recommendations,
     fetch_match_news,
@@ -311,6 +312,12 @@ def cached_compute_table(df: pd.DataFrame, win: int, draw: int) -> pd.DataFrame:
     return compute_table(df, schema=schema)
 
 
+@st.cache_data(show_spinner=False)
+def cached_adaptive_calibration(df: pd.DataFrame):
+    """Ricalcola l'adattamento quando il file o la finestra dati cambiano."""
+    return adaptive_goal_calibration(df)
+
+
 # ---------------- Sidebar ----------------
 with st.sidebar:
     st.header("Dati")
@@ -374,10 +381,11 @@ all_teams = sorted(pd.unique(pd.concat([df["home_team"], df["away_team"]])))
 
 # ---------------- Classifica (cachata: dipende solo da df, win, draw) ----------------
 table = cached_compute_table(df, win, draw)
+calibration = cached_adaptive_calibration(df)
 
 # ---------------- Tabs ----------------
-tab1, tab2, tab3 = st.tabs([
-    "🏆 Classifica", "🔮 Pronostico match", "📄 Scheda squadra"
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🏆 Classifica", "🔮 Pronostico match", "📄 Scheda squadra", "🧠 Apprendimento"
 ])
 
 # ========== TAB 1: Classifica ==========
@@ -390,6 +398,15 @@ with tab1:
 with tab2:
     st.subheader("🔮 Previsioni (1X2 + Gol)")
     st.info("Il modello usa gol reali, fattore casa e maggiore peso alle partite recenti.")
+    if calibration["enabled"]:
+        adjustment = (float(calibration["factor"]) - 1) * 100
+        direction = "aumenta" if adjustment > 0 else "riduce"
+        st.caption(
+            f"🧠 Calibrazione adattiva attiva: {direction} la stima gol del "
+            f"{abs(adjustment):.1f}% sulla base di {calibration['sample_size']} partite concluse."
+        )
+    else:
+        st.caption("🧠 Calibrazione adattiva in attesa di uno storico più ampio.")
 
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
@@ -408,7 +425,10 @@ with tab2:
     elif pred_home == pred_away:
         st.warning("Scegli due squadre diverse.")
     else:
-        gd = predict_goals_distribution(df, pred_home, pred_away, rho=rho, max_goals=8)
+        gd = predict_goals_distribution(
+            df, pred_home, pred_away, rho=rho, max_goals=8,
+            calibration_factor=float(calibration["factor"]),
+        )
         P = gd["joint"]
 
         oneXtwo = predict_1x2_from_matrix(P)
@@ -553,6 +573,38 @@ with tab3:
                 with c4_p: st.metric("Loss %", f"{(L / GP * 100):.1f}%")
             else:
                 st.info("Nessuna partita giocata per calcolare le percentuali.")
+
+# ========== TAB 4: Apprendimento ==========
+with tab4:
+    st.subheader("🧠 Apprendimento controllato")
+    st.caption(
+        "L'app verifica il modello sui risultati già presenti nel CSV, in ordine temporale, "
+        "e applica solo una correzione prudente alle stime dei gol."
+    )
+    if not calibration["enabled"]:
+        st.info(str(calibration["message"]))
+    else:
+        adjustment = (float(calibration["factor"]) - 1) * 100
+        metric_a, metric_b, metric_c, metric_d = st.columns(4)
+        metric_a.metric("Correzione gol", f"{adjustment:+.1f}%")
+        metric_b.metric("Partite verificate", int(calibration["sample_size"]))
+        metric_c.metric("Errore medio gol", f"{float(calibration['goal_mae']):.2f}")
+        metric_d.metric("Accuratezza O/U 2.5", f"{float(calibration['ou_accuracy']) * 100:.1f}%")
+
+        comparison = pd.DataFrame({
+            "Misura": ["Gol attesi dal modello", "Gol realmente segnati"],
+            "Media per partita": [
+                round(float(calibration["predicted_goals"]), 2),
+                round(float(calibration["actual_goals"]), 2),
+            ],
+        })
+        st.subheader("Verifica sugli ultimi risultati")
+        st.dataframe(comparison, use_container_width=True, hide_index=True)
+        st.success(str(calibration["message"]))
+        st.caption(
+            "Aggiorna il CSV con i risultati conclusi: la calibrazione verrà ricalcolata automaticamente. "
+            "La correzione è limitata a ±8% per evitare che una breve serie alteri il modello."
+        )
 
 # ========== Confronto integrato nel pronostico ==========
 with tab2:
