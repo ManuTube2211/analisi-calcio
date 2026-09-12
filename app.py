@@ -384,8 +384,8 @@ table = cached_compute_table(df, win, draw)
 calibration = cached_adaptive_calibration(df)
 
 # ---------------- Tabs ----------------
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🏆 Classifica", "🔮 Pronostico match", "📄 Scheda squadra", "🧠 Apprendimento"
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🏆 Classifica", "🔮 Pronostico match", "📄 Scheda squadra", "🧠 Apprendimento", "📈 Scalata"
 ])
 
 # ========== TAB 1: Classifica ==========
@@ -605,6 +605,94 @@ with tab4:
             "Aggiorna il CSV con i risultati conclusi: la calibrazione verrà ricalcolata automaticamente. "
             "La correzione è limitata a ±8% per evitare che una breve serie alteri il modello."
         )
+
+# ========== TAB 5: Scalata ==========
+with tab5:
+    st.subheader("📈 Pianificatore di scalata")
+    st.caption(
+        "Calcola la quota media necessaria a raggiungere un obiettivo reinvestendo l'intero budget a ogni step. "
+        "È una simulazione matematica: non include quote reali né garantisce risultati."
+    )
+
+    budget_col, target_col, steps_col = st.columns(3)
+    with budget_col:
+        initial_budget = st.number_input("Budget iniziale (€)", min_value=1.0, value=10.0, step=1.0, key="growth_initial")
+    with target_col:
+        target_budget = st.number_input("Budget obiettivo (€)", min_value=1.0, value=100.0, step=1.0, key="growth_target")
+    with steps_col:
+        growth_steps = st.select_slider(
+            "Numero di step", options=list(range(2, 13)), value=5,
+            format_func=lambda value: f"x{value}", key="growth_steps",
+        )
+
+    if target_budget <= initial_budget:
+        st.warning("Il budget obiettivo deve essere superiore al budget iniziale.")
+    else:
+        multiplier = target_budget / initial_budget
+        ideal_quote = multiplier ** (1 / growth_steps)
+        quote_tolerance = st.slider(
+            "Tolleranza fascia quota", min_value=0.02, max_value=0.25, value=0.10,
+            step=0.01, key="growth_tolerance",
+            help="Quanto può discostarsi una quota teorica dalla quota media ideale dello step.",
+        )
+        range_low = max(1.01, ideal_quote - quote_tolerance)
+        range_high = ideal_quote + quote_tolerance
+
+        metric_a, metric_b, metric_c = st.columns(3)
+        metric_a.metric("Moltiplicatore obiettivo", f"x{multiplier:.2f}")
+        metric_b.metric("Quota media ideale", f"{ideal_quote:.2f}")
+        metric_c.metric("Fascia per step", f"{range_low:.2f} – {range_high:.2f}")
+
+        plan_rows = []
+        current_budget = float(initial_budget)
+        for step_number in range(1, growth_steps + 1):
+            next_budget = current_budget * ideal_quote
+            plan_rows.append({
+                "Step": f"{step_number}/{growth_steps}",
+                "Budget prima dello step": f"€ {current_budget:.2f}",
+                "Quota media": f"{ideal_quote:.2f}",
+                "Budget dopo lo step": f"€ {next_budget:.2f}",
+            })
+            current_budget = next_budget
+        st.subheader("Percorso simulato")
+        st.dataframe(pd.DataFrame(plan_rows), use_container_width=True, hide_index=True)
+
+        st.subheader("Mercati teoricamente compatibili con lo step")
+        if pred_home == pred_away:
+            st.info("Seleziona due squadre diverse nel tab Pronostico match per confrontare i mercati teorici.")
+        else:
+            growth_gd = predict_goals_distribution(
+                df, pred_home, pred_away, rho=rho, max_goals=8,
+                calibration_factor=float(calibration["factor"]),
+            )
+            growth_1x2 = predict_1x2_from_matrix(growth_gd["joint"])
+            growth_markets = [
+                (f"{pred_home} vincente (1)", growth_1x2["1"]),
+                ("Pareggio (X)", growth_1x2["X"]),
+                (f"{pred_away} vincente (2)", growth_1x2["2"]),
+                ("Over 2.5", float(growth_gd["ou"]["Over 2.5"])),
+                ("Under 2.5", float(growth_gd["ou"]["Under 2.5"])),
+                ("Gol (entrambe segnano)", float(growth_gd["btts"])),
+                ("No Gol", 1 - float(growth_gd["btts"])),
+            ]
+            compatible = []
+            for market, probability in growth_markets:
+                fair_quote = 1 / probability if probability > 0 else np.nan
+                if range_low <= fair_quote <= range_high:
+                    compatible.append({
+                        "Mercato": market,
+                        "Probabilità modello": f"{probability * 100:.1f}%",
+                        "Quota teorica equa": f"{fair_quote:.2f}",
+                        "Compatibilità": "Nella fascia dello step",
+                    })
+            if compatible:
+                st.dataframe(pd.DataFrame(compatible), use_container_width=True, hide_index=True)
+            else:
+                st.info("Nessun mercato teorico del match selezionato rientra nella fascia di questo step.")
+            st.caption(
+                "La quota teorica equa deriva dalla probabilità del modello (1 / probabilità) e non è una quota reale. "
+                "Confrontala sempre con le quote effettivamente disponibili prima di prendere decisioni."
+            )
 
 # ========== Confronto integrato nel pronostico ==========
 with tab2:
