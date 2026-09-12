@@ -1,9 +1,15 @@
-# app.py — Analisi Calcio (Gol + xG) - VERSIONE ITALIANA STABILE
+# app.py — Streamlit Football Analysis
+# Versione riscritta: caching corretto, validazione CSV più chiara, niente variabili duplicate tra tab
 
 from datetime import datetime
+from html import escape
+import hmac
+import os
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 
 from analysis import (
@@ -13,70 +19,312 @@ from analysis import (
     export_excel_bytes,
     predict_goals_distribution,
     predict_1x2_from_matrix,
-    expected_goals,
+    match_recommendations,
+    fetch_match_news,
+    fetch_live_standings,
 )
 
-# ----------------- CONFIGURAZIONE PAGINA -----------------
-st.set_page_config(page_title="Analisi Calcio - 4 Sezioni", page_icon="⚽", layout="wide")
-st.title("⚽ Analisi Calcio")
-st.caption("CSV richiesto: date, home_team, away_team, home_score, away_score, xG, stats...")
+st.set_page_config(page_title="MatchScope", page_icon="⚽", layout="wide")
 
-# ----------------- FUNZIONE DI CARICAMENTO DATI (con cache) -----------------
-@st.cache_data
+
+def require_private_access():
+    """Attiva un accesso privato solo quando MATCHSCOPE_PASSWORD è configurata.
+
+    In locale non è richiesta alcuna password; sul servizio di hosting la
+    variabile viene salvata come segreto e protegge l'app dal link pubblico.
+    """
+    configured_password = os.getenv("MATCHSCOPE_PASSWORD")
+    if not configured_password or st.session_state.get("matchscope_authenticated"):
+        return
+
+    st.markdown("<div class='hero'><h1>⚽ MatchScope</h1><p>Accesso privato</p></div>", unsafe_allow_html=True)
+    candidate = st.text_input("Password di accesso", type="password")
+    if st.button("Accedi", type="primary"):
+        if hmac.compare_digest(candidate, configured_password):
+            st.session_state.matchscope_authenticated = True
+            st.rerun()
+        st.error("Password non corretta.")
+    st.stop()
+
+
+require_private_access()
+st.markdown("""
+<link rel="manifest" href="./app/static/manifest.json">
+<meta name="theme-color" content="#07111f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="MatchScope">
+<link rel="apple-touch-icon" href="./app/static/icon.svg">
+""", unsafe_allow_html=True)
+st.markdown("""
+<style>
+    :root { --ink: #fff4ae; --muted: #a8b4c2; --brand: #ffd54a; --accent: #ffb300; --surface: #0d1b2a; --line: #25445c; }
+    .stApp { background: radial-gradient(circle at 50% -15%, #183d58 0, #091522 38%, #050b14 78%); color: var(--ink); font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; }
+    [data-testid="stHeader"] { background: rgba(5, 11, 20, .88); }
+    [data-testid="stSidebar"] { background: #08131f; border-right: 1px solid var(--line); }
+    [data-testid="stSidebar"] * { color: var(--ink); }
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] { background:#102333; border:1px dashed #456d82; border-radius:12px; }
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button { background:#d89b00; color:#07111f; border:0; font-weight:800; }
+    [data-testid="stSidebar"] [data-baseweb="input"], [data-testid="stSidebar"] [data-baseweb="base-input"], [data-testid="stSidebar"] input { background:#102333 !important; color:#fff4ae !important; }
+    [data-testid="stSidebar"] [data-baseweb="input"] { border:1px solid #456d82; border-radius:9px; }
+    [data-testid="stSidebar"] pre, [data-testid="stSidebar"] code { background:#102333 !important; color:#ffe780 !important; border-color:#31546b !important; }
+    [data-testid="stSidebar"] [data-testid="stCode"] { background:#102333 !important; border:1px solid #31546b; border-radius:10px; }
+    h1, h2, h3, [data-testid="stMetricLabel"] { font-family: "Avenir Next", "Trebuchet MS", sans-serif; color: var(--ink); letter-spacing: .03em; }
+    .hero { padding: 1.55rem 1.8rem; border-radius: 20px; margin-bottom: 1.4rem;
+        background: linear-gradient(105deg, rgba(21, 58, 83, .92), rgba(9, 21, 34, .92) 65%); border: 1px solid #35627b;
+        box-shadow: 0 0 34px rgba(255, 202, 46, .10), inset 0 1px rgba(255,255,255,.05); }
+    .hero h1 { margin: 0; color: #ffe780; font-size: 2.5rem; letter-spacing: .02em; text-shadow: 0 0 15px rgba(255, 213, 74, .36); }
+    .hero p { margin: .4rem 0 0; color: #d1dae4; font-size: 1.02rem; }
+    [data-testid="stMetric"] { background: rgba(13, 27, 42, .92); border: 1px solid var(--line);
+        padding: .9rem; border-radius: 14px; box-shadow: inset 0 1px rgba(255,255,255,.04); }
+    [data-testid="stMetricValue"] { color: #ffe780; font-family: "Avenir Next", Avenir, sans-serif; }
+    .pick { background: rgba(13, 27, 42, .92); border: 1px solid #31546b; border-top: 4px solid #ffd54a;
+        border-radius: 14px; padding: .85rem 1rem; min-height: 118px; box-shadow: 0 0 16px rgba(255, 213, 74, .06); }
+    .pick-title { color: #a8b4c2; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
+    .pick-value { color: #fff4ae; font-size: 1.08rem; font-weight: 700; margin: .35rem 0; }
+    .pick-meta { color: #c8d3de; font-size: .84rem; }
+    .news-card { height: 172px; padding: .85rem; border-radius: 14px; background: rgba(13, 27, 42, .92);
+        border: 1px solid #31546b; border-top: 3px solid #ffd54a; box-sizing: border-box;
+        box-shadow: inset 0 1px rgba(255,255,255,.04); display: flex; flex-direction: column; }
+    .news-card-title { color: #fff4ae; font-size: .94rem; font-weight: 700; line-height: 1.3;
+        overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+    .news-card-meta { color: #a8b4c2; font-size: .75rem; margin-top: auto; padding-top: .65rem; }
+    .news-card-link { color: #ffe780; font-size: .8rem; font-weight: 700; text-decoration: none; margin-top: .25rem; }
+    .stTabs [data-baseweb="tab-list"] { gap: .35rem; border-bottom: 1px solid var(--line); }
+    .stTabs [data-baseweb="tab"] { color: #b8c5d1; font-weight: 650; padding: .6rem 1rem; }
+    .stTabs [aria-selected="true"] { color: #ffe780 !important; border-bottom-color: #ffd54a !important; }
+    [data-testid="stDataFrame"], [data-testid="stTable"] { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    [data-testid="stTable"] * { color:#fff4ae !important; }
+    div[data-testid="stAlert"] { border-radius: 12px; background:#102333; border:1px solid #456d82; }
+    div[data-testid="stAlert"] * { color:#ffe780 !important; }
+    .stButton > button, .stDownloadButton > button { background: #d89b00; color: #07111f; border: 0; border-radius: 9px; font-weight: 800; }
+    .stButton > button:hover, .stDownloadButton > button:hover { background: #ffe780; color: #07111f; }
+    .jarvis-orb-wrap { display:flex; justify-content:center; margin:-.25rem 0 1rem; }
+    .jarvis-orb { width:86px; height:86px; border-radius:50%; position:relative; overflow:hidden; border:2px solid #ffe780;
+        background: radial-gradient(circle at 30% 28%, #fff8bb 0 4%, #ffd54a 6%, #d89100 28%, #152838 64%, #050b14 100%);
+        box-shadow: 0 0 10px #ffd54a, 0 0 35px rgba(255,213,74,.75), inset -14px -12px 24px rgba(0,0,0,.65); animation: orb-float 3.5s ease-in-out infinite; }
+    .jarvis-orb:before { content:""; position:absolute; inset:12px; border-radius:50%; border:1px dashed rgba(7,17,31,.75); animation: orb-spin 4s linear infinite; }
+    .jarvis-orb:after { content:"⚽"; display:grid; place-items:center; position:absolute; inset:0; font-size:46px; filter:drop-shadow(0 0 4px #fff4ae); animation: orb-spin 7s linear infinite reverse; }
+    @keyframes orb-spin { to { transform:rotate(360deg); } }
+    @keyframes orb-float { 50% { transform:translateY(-7px) scale(1.035); } }
+    .standing-panel { margin:0 0 .7rem; padding:.65rem .7rem; background:rgba(8,19,31,.88); border:1px solid #31546b; border-left:3px solid #ffd54a; border-radius:10px; }
+    .standing-title { color:#ffe780; font-size:.87rem; font-weight:800; letter-spacing:.035em; }.standing-country{ color:#92a4b5; font-size:.68rem; }
+    .standing-row { display:grid; grid-template-columns:20px 1fr 24px 27px; gap:.25rem; padding:.22rem 0; border-top:1px solid rgba(71,104,126,.38); color:#e7edf3; font-size:.74rem; }.standing-head{color:#8ea3b5;font-size:.64rem;border-top:0;padding-top:.42rem}.standing-team{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.standing-pts{color:#ffe780;font-weight:800;text-align:right}
+    @media (max-width: 640px) {
+        .block-container { padding: 0.8rem 0.8rem 2rem; }
+        .hero { padding: 1.1rem; border-radius: 16px; margin-bottom: 1rem; }
+        .hero h1 { font-size: 2rem; }
+        .hero p { font-size: .92rem; }
+        .news-card { height: 152px; padding: .72rem; }
+        .news-card-title { font-size: .86rem; -webkit-line-clamp: 3; }
+        .news-card-meta, .news-card-link { font-size: .72rem; }
+        [data-testid="stMetric"] { padding: .7rem; }
+        [data-testid="stMetricValue"] { font-size: 1.45rem; }
+        .stTabs [data-baseweb="tab"] { font-size: .78rem; padding: .55rem .35rem; }
+        .jarvis-orb { width:72px; height:72px; } .jarvis-orb:after { font-size:38px; }
+    }
+</style>
+""", unsafe_allow_html=True)
+st.markdown("""
+<div class="hero">
+  <h1>⚽ MatchScope</h1>
+  <p>Analisi squadra per squadra, probabilità trasparenti e pronostici costruiti sui dati della sfida.</p>
+</div>
+""", unsafe_allow_html=True)
+st.markdown('<div class="jarvis-orb-wrap"><div class="jarvis-orb" aria-label="Palla animata"></div></div>', unsafe_allow_html=True)
+st.caption("CSV richiesto: date, home_team, away_team, home_score, away_score, statistiche opzionali...")
+
+# ---------------- Notizie live sempre disponibili ----------------
+@st.cache_data(ttl=600, show_spinner=False)
+def cached_match_news(home_team: str, away_team: str):
+    """Cache di dieci minuti: aggiornabile dalla homepage."""
+    return fetch_match_news(home_team, away_team)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def cached_live_standings():
+    """Cache di dieci minuti per evitare sei chiamate live a ogni interazione."""
+    return fetch_live_standings(limit=5)
+
+
+def render_standing(standing):
+    """Rende una mini classifica compatta, pensata per i pannelli laterali."""
+    if standing.get("error"):
+        return (
+            f'<div class="standing-panel"><div class="standing-title">{escape(standing["name"])}</div>'
+            '<div class="standing-country">Dati momentaneamente non disponibili</div></div>'
+        )
+    rows_html = ''.join(
+        f'<div class="standing-row"><span>{escape(str(row["pos"]))}</span>'
+        f'<span class="standing-team">{escape(str(row["team"]))}</span>'
+        f'<span>{escape(str(row["played"]))}</span>'
+        f'<span class="standing-pts">{escape(str(row["points"]))}</span></div>'
+        for row in standing["rows"]
+    )
+    return (
+        f'<div class="standing-panel"><div class="standing-title">{escape(standing["name"])}</div>'
+        f'<div class="standing-country">{escape(standing["country"])} · live</div>'
+        '<div class="standing-row standing-head"><span>#</span><span>Squadra</span><span>G</span><span>Pt</span></div>'
+        f'{rows_html}</div>'
+    )
+
+
+st.subheader("◈ Centro operativo live")
+st.caption("Notizie e classifiche aggiornate, disponibili anche senza caricare un file CSV.")
+news_input, refresh_news_col, refresh_table_col = st.columns([3, 1, 1])
+with news_input:
+    homepage_topic = st.text_input("Squadra o argomento", value="Serie A", key="homepage_news_topic")
+with refresh_news_col:
+    st.write("")
+    refresh_homepage_news = st.button("↻ Notizie", use_container_width=True, key="refresh_homepage_news")
+with refresh_table_col:
+    st.write("")
+    refresh_homepage_tables = st.button("↻ Classifiche", use_container_width=True, key="refresh_homepage_tables")
+
+if refresh_homepage_news:
+    cached_match_news.clear()
+if refresh_homepage_tables:
+    cached_live_standings.clear()
+
+try:
+    with st.spinner("Sincronizzo il centro operativo…"):
+        homepage_news = cached_match_news(homepage_topic, "")
+except (requests.RequestException, ValueError):
+    homepage_news = []
+
+try:
+    live_standings = cached_live_standings()
+except requests.RequestException:
+    live_standings = {}
+
+left_home, center_home, right_home = st.columns([1.05, 1.55, 1.05], gap="medium")
+with left_home:
+    st.markdown("#### ◀ Classifiche")
+    for league_key in ("serie_a", "serie_b", "laliga"):
+        standing = live_standings.get(league_key)
+        if standing:
+            st.markdown(render_standing(standing), unsafe_allow_html=True)
+
+with center_home:
+    st.markdown("#### 📰 Ultime notizie")
+    if homepage_news:
+        for item in homepage_news[:3]:
+            safe_title = escape(item["title"])
+            safe_source = escape(item["source"])
+            safe_date = escape(item["published"])
+            safe_link = escape(item["link"], quote=True)
+            st.markdown(
+                f'<div class="news-card">'
+                f'<div class="news-card-title">{safe_title}</div>'
+                f'<div class="news-card-meta">{safe_source} · {safe_date}</div>'
+                f'<a class="news-card-link" href="{safe_link}" target="_blank" rel="noopener noreferrer">Leggi articolo ↗</a>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info("Le notizie non sono raggiungibili al momento.")
+
+with right_home:
+    st.markdown("#### Classifiche ▶")
+    for league_key in ("bundesliga", "ligue_1", "premier_league"):
+        standing = live_standings.get(league_key)
+        if standing:
+            st.markdown(render_standing(standing), unsafe_allow_html=True)
+
+st.caption("Classifiche: dati live ESPN · le prime cinque squadre per ogni campionato.")
+
+st.divider()
+
+# ----------------- Caricamento dati -----------------
+
+def _find_header_row(raw_bytes: bytes, delimiter: str = ";") -> int:
+    """Trova l'indice (0-based) della riga che contiene davvero l'intestazione
+    delle colonne, cercando 'date' e 'home_team' tra i primi valori della riga.
+    Così l'app funziona sia con 0, 1 o più righe decorative sopra (es. 'Tabella 1',
+    'Season 25-26'), senza dover contare le righe a mano ogni volta."""
+    text = raw_bytes.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    for i, line in enumerate(lines[:10]):  # cerca solo nelle prime righe
+        cells = [c.strip().lower() for c in line.split(delimiter)]
+        if "date" in cells and "home_team" in cells:
+            return i
+    # fallback: nessuna riga trovata, assume che l'intestazione sia la prima riga
+    return 0
+
+
+@st.cache_data(show_spinner=False)
+def _read_and_normalize(raw_bytes: bytes, source_label: str):
+    """Legge e normalizza il CSV. Non chiama st.* qui dentro: i messaggi UI
+    vengono mostrati fuori, così funzionano sempre anche in cache hit."""
+    import io
+    header_row = _find_header_row(raw_bytes)
+    df_raw = pd.read_csv(
+        io.BytesIO(raw_bytes),
+        delimiter=";",
+        decimal=",",
+        header=header_row,  # rilevata automaticamente, non più fissa a 1
+    )
+    df = normalize_df(df_raw)
+    return df
+
+
 def load_data(uploaded_file):
-    """
-    Carica i dati.
-    Priorità 1: File caricato dall'utente.
-    Priorità 2: File locale 'dati_default.csv'.
-    """
-    data_source = None
+    """Priorità 1: file caricato dall'utente. Priorità 2: dati_default.csv locale.
 
+    Ritorna (df, source_label, error_message). error_message è None se ok.
+    """
     if uploaded_file is not None:
-        data_source = uploaded_file
-        st.sidebar.info("Dati caricati da file utente.")
+        raw_bytes = uploaded_file.getvalue()
+        source_label = "file caricato"
     else:
         try:
-            data_source = "dati_default.csv"
-            with open(data_source, "r"):
-                pass
-            st.sidebar.info("Dati caricati da file locale.")
+            with open("dati_default.csv", "rb") as f:
+                raw_bytes = f.read()
+            source_label = "dati_default.csv locale"
         except FileNotFoundError:
-            st.sidebar.warning("Nessun file caricato. 'dati_default.csv' non trovato.")
-            return None
+            return None, None, "Nessun file caricato e 'dati_default.csv' non trovato."
 
     try:
-        df_raw = pd.read_csv(
-            data_source,
-            delimiter=";",
-            decimal=",",
-            header=1,  # Salta la prima riga ("Season 25-26")
-        )
-        return normalize_df(df_raw)
+        df = _read_and_normalize(raw_bytes, source_label)
+        return df, source_label, None
+    except ValueError as e:
+        # Colonne mancanti o simili: messaggio parlante invece del traceback pandas
+        return None, source_label, f"CSV non valido: {e}"
     except Exception as e:
-        st.error(f"Errore lettura/normalizzazione: {e}")
-        return None
+        return None, source_label, (
+            f"Errore lettura/normalizzazione ({source_label}): {e}. "
+            "Controlla che il file usi ';' come separatore e ',' come decimale, "
+            "e che la prima riga sia un'intestazione stagione da saltare."
+        )
+
+
+@st.cache_data(show_spinner=False)
+def cached_compute_table(df: pd.DataFrame, win: int, draw: int) -> pd.DataFrame:
+    schema = PointSchema(win=win, draw=draw, loss=0)
+    return compute_table(df, schema=schema)
+
 
 # ---------------- Sidebar ----------------
 with st.sidebar:
     st.header("Dati")
     up = st.file_uploader(
-        "Carica CSV (opzionale)",
+        "Carica CSV (Opzionale)",
         type=["csv"],
         help="Se non carichi un file, verrà usato il 'dati_default.csv' locale.",
     )
     st.code(
-        "date;home_team;away_team;home_score;away_score;home_xg;away_xg\n"
-        "2024-08-17;Juventus;Roma;3;0;2,1;0,4",
+        "date;home_team;away_team;home_score;away_score\n"
+        "2024-08-17;Juventus;Roma;3;0",
         language="csv",
     )
     st.divider()
-    win = st.number_input("Punti per vittoria", 0, 5, 3)
-    draw = st.number_input("Punti per pareggio", 0, 3, 1)
+    win = st.number_input("Punti vittoria", 0, 5, 3)
+    draw = st.number_input("Punti pareggio", 0, 3, 1)
 
     st.divider()
-    st.header("Filtri dati")
+    st.header("Filtri Dati")
     days_window = st.slider(
-        "Usa solo dati degli ultimi N giorni",
+        "Usa solo dati ultimi N giorni",
         min_value=60,
         max_value=1000,
         value=365,
@@ -85,14 +333,19 @@ with st.sidebar:
     )
 
 # ---------------- Lettura & normalizzazione ----------------
-df_normalized = load_data(up)
+df_normalized, source_label, error_message = load_data(up)
+
+if source_label:
+    st.sidebar.info(f"Dati caricati da: {source_label}")
+if error_message:
+    st.sidebar.warning(error_message)
 
 if df_normalized is None:
-    st.info("👆 Carica un CSV o aggiungi 'dati_default.csv' alla cartella per iniziare.")
+    st.info("👆 Carica un CSV valido o aggiungi 'dati_default.csv' alla cartella per iniziare.")
     st.stop()
 
 if df_normalized.empty:
-    st.error("Errore: il CSV è vuoto o nessun dato è valido.")
+    st.error("Errore: il CSV è vuoto o nessun dato è valido dopo la normalizzazione.")
     st.stop()
 
 # --- Filtro temporale ---
@@ -103,293 +356,179 @@ df = df_normalized[df_normalized["date"] >= min_date].copy()
 if df.empty:
     st.warning(
         f"Nessuna partita trovata negli ultimi {days_window} giorni. "
-        "Prova ad allargare il filtro 'Usa solo dati degli ultimi N giorni' nella sidebar."
+        "Prova ad allargare il filtro 'Usa solo dati ultimi N giorni' nella sidebar."
     )
     st.stop()
 
-st.sidebar.caption(
-    f"Statistiche calcolate su {len(df)} partite (dal {min_date.date()})"
-)
+st.sidebar.caption(f"Statistiche calcolate su {len(df)} partite (dal {min_date.date()})")
 
-# ---------------- Classifica ----------------
-schema = PointSchema(win=win, draw=draw, loss=0)
-table = compute_table(df, schema=schema)
+# Lista squadre calcolata una sola volta e riusata in tutti i tab
+all_teams = sorted(pd.unique(pd.concat([df["home_team"], df["away_team"]])))
 
-# ---------------- NAVIGAZIONE SEZIONI ----------------
-sezione = st.radio(
-    "Sezione",
-    ["📊 Classifica", "🔮 Previsioni (1X2 + Gol)", "👤 Scheda squadra", "⚖️ Confronto squadre (H2H)"],
-    horizontal=True,
-)
+# ---------------- Classifica (cachata: dipende solo da df, win, draw) ----------------
+table = cached_compute_table(df, win, draw)
 
-# ========== SEZIONE 1: Classifica ==========
-if sezione == "📊 Classifica":
-    st.subheader("Classifica totale e statistiche")
+# ---------------- Tabs ----------------
+tab1, tab2, tab3 = st.tabs([
+    "🏆 Classifica", "🔮 Pronostico match", "📄 Scheda squadra"
+])
 
-    table_it = table.rename(columns={
-        "Pos": "Posizione",
-        "team": "Squadra",
-        "GP": "Partite",
-        "W": "Vittorie",
-        "D": "Pareggi",
-        "L": "Sconfitte",
-        "GF": "Gol fatti",
-        "GA": "Gol subiti",
-        "XGF": "xG fatti",
-        "XGA": "xG subiti",
-        "ShotsF": "Tiri",
-        "ShotsA": "Tiri subiti",
-        "StF": "Tiri in porta",
-        "StA": "Tiri in porta subiti",
-        "CornersF": "Corner",
-        "CornersA": "Corner subiti",
-        "Yellow": "Cartellini gialli",
-        "PossAvg": "Possesso medio (%)",
-        "GD": "Differenza reti",
-        "XGD": "Differenza xG",
-        "Pts": "Punti",
-        "PPG": "Punti/partita (PPG)",
-        "WinRate": "Percentuale vittorie",
-    })
+# ========== TAB 1: Classifica ==========
+with tab1:
+    st.subheader("Classifica totale e Statistiche")
+    st.dataframe(table, use_container_width=True, hide_index=True)
+    st.caption("PPG = punti per partita, WinRate = % vittorie. Scorri per vedere tiri, corner e altre statistiche.")
 
-    st.dataframe(table_it, use_container_width=True, hide_index=True)
-    st.caption(
-        "PPG = punti per partita. Scorri orizzontalmente per vedere tiri, corner, xG, ecc."
-    )
-
-# ========== SEZIONE 2: Previsioni ==========
-elif sezione == "🔮 Previsioni (1X2 + Gol)":
+# ========== TAB 2: Previsioni ==========
+with tab2:
     st.subheader("🔮 Previsioni (1X2 + Gol)")
-    st.info("Il modello di previsione si basa sui GOL (punteggi) storici delle squadre selezionate.")
+    st.info("Il modello usa gol reali, fattore casa e maggiore peso alle partite recenti.")
 
-    mode = st.radio(
-        "Modalità algoritmo",
-        ["Conservativa", "Standard", "Aggressiva"],
-        index=1,
-        horizontal=True,
-    )
-
-    if mode == "Conservativa":
-        btts_yes_thr, btts_no_thr, ou_min_gap = 0.65, 0.35, 0.15
-    elif mode == "Aggressiva":
-        btts_yes_thr, btts_no_thr, ou_min_gap = 0.55, 0.45, 0.05
-    else:  # Standard
-        btts_yes_thr, btts_no_thr, ou_min_gap = 0.60, 0.40, 0.10
-
-    teams = sorted(pd.unique(pd.concat([df["home_team"], df["away_team"]])))
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
-        teamH = st.selectbox("Squadra di casa", teams)
+        pred_home = st.selectbox("Squadra di casa", all_teams, key="pred_home")
     with c2:
-        teamA = st.selectbox("Squadra in trasferta", teams)
+        pred_away = st.selectbox(
+            "Squadra in trasferta", all_teams,
+            index=1 if len(all_teams) > 1 else 0,
+            key="pred_away",
+        )
     with c3:
         rho = st.slider("Correlazione (ρ)", 0.00, 0.25, 0.05, 0.01)
-        st.caption(
-            "ρ regola quanto i gol delle due squadre sono legati tra loro.\n"
-            "- 0.00 ≈ modello base (gol indipendenti)\n"
-            "- Valori bassi (0.03–0.07) per partite normali\n"
-            "- Valori più alti (0.10–0.20) se ti aspetti molti risultati stretti (0–0, 1–0, 1–1)."
-        )
 
-    if not teamH or not teamA:
+    if not pred_home or not pred_away:
         st.warning("Seleziona entrambe le squadre.")
-    elif teamH == teamA:
+    elif pred_home == pred_away:
         st.warning("Scegli due squadre diverse.")
     else:
-        gd = predict_goals_distribution(df, teamH, teamA, rho=rho, max_goals=8)
+        gd = predict_goals_distribution(df, pred_home, pred_away, rho=rho, max_goals=8)
         P = gd["joint"]
 
         oneXtwo = predict_1x2_from_matrix(P)
         oneXtwo_pct = {k: round(v * 100, 1) for k, v in oneXtwo.items()}
 
         colm = st.columns(3)
-        colm[0].metric("Probabilità 1 (casa)", f"{oneXtwo_pct['1']}%")
-        colm[1].metric("Probabilità X (pareggio)", f"{oneXtwo_pct['X']}%")
-        colm[2].metric("Probabilità 2 (trasferta)", f"{oneXtwo_pct['2']}%")
+        colm[0].metric("Probabilità 1", f"{oneXtwo_pct['1']}%")
+        colm[1].metric("Probabilità X", f"{oneXtwo_pct['X']}%")
+        colm[2].metric("Probabilità 2", f"{oneXtwo_pct['2']}%")
+
+        suggestions = match_recommendations(oneXtwo, {**gd["ou"], "btts": gd["btts"]})
+        st.subheader("Indicazioni per questa partita")
+        st.caption("Non sono certezze: ogni indicazione cambia con la coppia casa/trasferta e con lo storico selezionato.")
+        pick_columns = st.columns(3)
+        pick_titles = {"esito": "Esito più probabile", "gol": "Linea gol 2.5", "btts": "Entrambe segnano"}
+        for column, key in zip(pick_columns, ("esito", "gol", "btts")):
+            pick = suggestions[key]
+            with column:
+                st.markdown(
+                    f'<div class="pick"><div class="pick-title">{pick_titles[key]}</div>'
+                    f'<div class="pick-value">{pick["label"]}</div>'
+                    f'<div class="pick-meta">{pick["probability"] * 100:.1f}% · confidenza {pick["confidence"]}</div></div>',
+                    unsafe_allow_html=True,
+                )
 
         fig = go.Figure(
             go.Pie(
-                labels=[f"{teamH} (1)", "Pareggio (X)", f"{teamA} (2)"],
+                labels=[f"{pred_home} (1)", "Pareggio (X)", f"{pred_away} (2)"],
                 values=[oneXtwo["1"], oneXtwo["X"], oneXtwo["2"]],
                 textinfo="label+percent",
             )
         )
         fig.update_layout(height=360, margin=dict(l=0, r=0, t=30, b=0))
         st.plotly_chart(fig, use_container_width=True)
+        st.caption("Probabilità 1X2 ottenute da gol reali, fattore casa e forma recente.")
 
         st.divider()
-
-        sub = st.columns(3)
-        sub[0].metric(f"{teamH} λ (gol attesi)", f"{gd['lambda_home']:.2f}")
-        sub[1].metric(f"{teamA} λ (gol attesi)", f"{gd['lambda_away']:.2f}")
-        sub[2].metric("BTTS (entrambe segnano)", f"{gd['btts'] * 100:.1f}%")
+        st.subheader("Motore del pronostico")
+        sub = st.columns(2)
+        sub[0].metric(f"{pred_home} gol stimati", f"{gd['lambda_home']:.2f}")
+        sub[1].metric(f"{pred_away} gol stimati", f"{gd['lambda_away']:.2f}")
 
         tot = gd["total_goals_dist"]
         tot_labels = [str(i) for i in range(len(tot))]
-        st.subheader("Distribuzione gol totali previsti")
-        st.bar_chart(
-            pd.DataFrame({"Probabilità %": (tot * 100).round(2)}, index=tot_labels)
-        )
+        st.subheader("Distribuzione dei gol attesi")
+        st.bar_chart(pd.DataFrame({"TotGoals%": (tot * 100).round(2)}, index=tot_labels))
 
-        st.subheader("📊 Mercati Gol (Over/Under)")
+        st.subheader("📊 Probabilità mercati gol")
         ou_dict = gd["ou"]
-        ou_df = pd.DataFrame(
-            {
-                "Mercato": list(ou_dict.keys()),
-                "Probabilità": [f"{p * 100:.1f}%" for p in ou_dict.values()],
-            }
-        )
+        ou_df = pd.DataFrame({
+            "Mercato": list(ou_dict.keys()),
+            "Probabilità": [f"{p * 100:.1f}%" for p in ou_dict.values()],
+        })
         st.dataframe(ou_df, use_container_width=True, hide_index=True)
 
-        st.subheader("⚽ Gol / No Gol (BTTS)")
+        st.subheader("⚽ Entrambe le squadre segnano")
         btts = float(gd.get("btts", 0.0))
         btts_pct = btts * 100
-        st.metric("Probabilità Gol (entrambe segnano)", f"{btts_pct:.1f}%")
-
-        if btts > btts_yes_thr:
-            st.success(f"Consiglio ({mode}): **Gol (BTTS Sì)** — {btts_pct:.1f}%")
-        elif btts < btts_no_thr:
-            st.warning(
-                f"Consiglio ({mode}): **No Gol (BTTS No)** — {100 - btts_pct:.1f}%"
-            )
-        else:
-            st.info(f"({mode}) Nessun chiaro favorito tra Gol / No Gol.")
-
-        best_key, best_prob = max(
-            ou_dict.items(),
-            key=lambda kv: abs(kv[1] - 0.5),
-        )
-        gap = abs(best_prob - 0.5)
-
-        if gap >= ou_min_gap:
-            st.success(
-                f"Consiglio ({mode}) Over/Under più forte: **{best_key}** — {best_prob * 100:.1f}%"
-            )
-        else:
-            st.info(
-                f"({mode}) Nessun mercato Over/Under con margine chiaro rispetto al 50%."
-            )
+        st.metric("Probabilità BTTS (entrambe segnano)", f"{btts_pct:.1f}%")
 
         imax, jmax = np.unravel_index(np.argmax(P), P.shape)
         best_score_prob = P[imax, jmax] * 100.0
         st.info(
-            f"Risultato esatto più probabile: "
-            f"{teamH} {imax}–{jmax} {teamA} — {best_score_prob:.1f}%"
+            f"Risultato esatto più probabile (modello combinato): "
+            f"{pred_home} {imax}–{jmax} {pred_away} — {best_score_prob:.1f}%"
         )
 
-        flat = [
-            (i, j, P[i, j])
-            for i in range(P.shape[0])
-            for j in range(P.shape[1])
-        ]
+        flat = [(i, j, P[i, j]) for i in range(P.shape[0]) for j in range(P.shape[1])]
         flat.sort(key=lambda x: x[2], reverse=True)
         top5 = flat[:5]
-        top5_df = pd.DataFrame(
-            {
-                "Risultato": [f"{teamH} {i}-{j} {teamA}" for i, j, _ in top5],
-                "Probabilità": [f"{p * 100:.1f}%" for _, _, p in top5],
-            }
-        )
+        top5_df = pd.DataFrame({
+            "Score": [f"{pred_home} {i}-{j} {pred_away}" for i, j, _ in top5],
+            "Probabilità": [f"{p * 100:.1f}%" for _, _, p in top5],
+        })
         st.table(top5_df)
 
-# ========== SEZIONE 3: Scheda Squadra ==========
-elif sezione == "👤 Scheda squadra":
-    st.header("👤 Scheda squadra")
-    teams_list = sorted(pd.unique(pd.concat([df["home_team"], df["away_team"]])))
-    team_sel = st.selectbox("Seleziona una squadra", teams_list)
+# ========== TAB 3: Scheda Squadra ==========
+with tab3:
+    st.header("📄 Scheda Squadra")
+    team_sel = st.selectbox("Seleziona Squadra", all_teams, key="scheda_team")
 
-    if not team_sel:
-        st.info("Seleziona una squadra per vedere i dettagli.")
-    else:
-        team_matches = df[
-            (df["home_team"] == team_sel) | (df["away_team"] == team_sel)
-        ].copy()
+    if team_sel:
+        team_matches = df[(df["home_team"] == team_sel) | (df["away_team"] == team_sel)].copy()
 
-        st.subheader("Partite giocate (periodo filtrato)")
-        if team_matches.empty:
-            st.info("Nessuna partita trovata per questa squadra nel periodo selezionato.")
-        else:
-            cols_exclude = ["competition", "round", "season"]
-            display_cols = [c for c in df.columns if c not in cols_exclude]
-            tm = (
-                team_matches
-                .sort_values("date")[display_cols]
-                .copy()
-            )
-
-            rename_matches = {
-                "date": "Data",
-                "home_team": "Squadra casa",
-                "away_team": "Squadra trasferta",
-                "home_score": "Gol casa",
-                "away_score": "Gol trasferta",
-                "home_xg": "xG casa",
-                "away_xg": "xG trasferta",
-                "home_possession": "Possesso casa (%)",
-                "away_possession": "Possesso trasferta (%)",
-                "home_shots": "Tiri casa",
-                "away_shots": "Tiri trasferta",
-                "home_shots_on_target": "Tiri in porta casa",
-                "away_shots_on_target": "Tiri in porta trasferta",
-                "home_corners": "Corner casa",
-                "away_corners": "Corner trasferta",
-                "home_yellow": "Gialli casa",
-                "away_yellow": "Gialli trasferta",
-            }
-            tm = tm.rename(columns=rename_matches)
-
-            st.dataframe(tm, use_container_width=True, hide_index=True)
-            st.caption(
-                f"Partite mostrate (basate sul filtro di {days_window} giorni): "
-                f"{len(team_matches)}"
-            )
+        st.subheader("Partite giocate (filtrate)")
+        team_matches_view = (
+            team_matches
+            .sort_values("date")
+            [[c for c in df.columns if c not in ["competition", "round", "season", "home_xg", "away_xg"]]]
+        )
+        st.dataframe(team_matches_view, use_container_width=True, hide_index=True)
+        st.caption(
+            f"Partite mostrate (basate sul filtro di {days_window} giorni): {len(team_matches_view)}"
+        )
 
         row = table[table["team"] == team_sel]
-
         if row.empty:
             st.info("Squadra non trovata in classifica.")
         else:
-            def get_val(r: pd.DataFrame, col_name: str, default=0.0):
-                return float(r[col_name].iloc[0]) if col_name in r.columns else default
+            st.subheader("Statistiche totali (dal DataFrame classifica)")
+            st.dataframe(row.T, use_container_width=True)
 
-            st.subheader("Statistiche complessive (classifica)")
+            def get_stat(r, col_name, default=0.0):
+                return r[col_name].iloc[0] if col_name in r.columns else default
 
-            c_tot1, c_tot2, c_tot3 = st.columns(3)
-            with c_tot1:
-                st.metric("Partite giocate", int(get_val(row, "GP", 0)))
-                st.metric("Gol fatti (GF)", int(get_val(row, "GF", 0)))
-                st.metric("Gol subiti (GA)", int(get_val(row, "GA", 0)))
-                st.metric("Punti totali", int(get_val(row, "Pts", 0)))
-            with c_tot2:
-                st.metric("Tiri totali fatti", int(get_val(row, "ShotsF", 0)))
-                st.metric("Tiri in porta fatti", int(get_val(row, "StF", 0)))
-                st.metric("Corner totali fatti", int(get_val(row, "CornersF", 0)))
-                st.metric("Cartellini gialli", int(get_val(row, "Yellow", 0)))
-            with c_tot3:
-                st.metric("Tiri totali subiti", int(get_val(row, "ShotsA", 0)))
-                st.metric("Tiri in porta subiti", int(get_val(row, "StA", 0)))
-                st.metric("Corner totali subiti", int(get_val(row, "CornersA", 0)))
-                st.metric("Differenza reti (GD)", int(get_val(row, "GD", 0)))
+            GP = int(get_stat(row, "GP", 0))
 
-            st.subheader("Statistiche medie per partita")
-            c_avg1, c_avg2 = st.columns(2)
-            with c_avg1:
-                st.metric("Possesso medio", f"{get_val(row, 'PossAvg', 0):.1f}%")
-                st.metric("Tiri fatti / gara", f"{get_val(row, 'ShotsF_pG', 0):.1f}")
-                st.metric("Tiri in porta fatti / gara", f"{get_val(row, 'StF_pG', 0):.1f}")
-                st.metric("Corner fatti / gara", f"{get_val(row, 'CornersF_pG', 0):.1f}")
-            with c_avg2:
-                st.metric("Tiri subiti / gara", f"{get_val(row, 'ShotsA_pG', 0):.1f}")
-                st.metric("Tiri in porta subiti / gara", f"{get_val(row, 'StA_pG', 0):.1f}")
-                st.metric("Corner subiti / gara", f"{get_val(row, 'CornersA_pG', 0):.1f}")
-                st.metric("PPG (punti per gara)", f"{get_val(row, 'PPG', 0):.2f}")
+            st.subheader("Statistiche medie (per partita)")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Possesso palla medio", f"{get_stat(row, 'PossAvg', 0):.1f}%")
+                st.metric("Tiri fatti / gara", f"{get_stat(row, 'ShotsF_pG', 0):.1f}")
+                st.metric("Tiri in porta fatti / gara", f"{get_stat(row, 'StF_pG', 0):.1f}")
+                st.metric("Corner fatti / gara", f"{get_stat(row, 'CornersF_pG', 0):.1f}")
+            with c2:
+                st.metric("Tiri subiti / gara", f"{get_stat(row, 'ShotsA_pG', 0):.1f}")
+                st.metric("Tiri in porta subiti / gara", f"{get_stat(row, 'StA_pG', 0):.1f}")
+            with c3:
+                st.metric("Corner subiti / gara", f"{get_stat(row, 'CornersA_pG', 0):.1f}")
+                st.metric("Cartellini gialli (totali)", f"{int(get_stat(row, 'Yellow', 0))}")
+                st.metric("Cartellini rossi (totali)", f"{int(get_stat(row, 'Red', 0))}")
 
-            GP = int(get_val(row, "GP", 0))
-            st.subheader("Ripartizione esiti delle partite")
+            st.subheader("Ripartizione esiti stagione")
             if GP > 0:
-                W = int(get_val(row, "W", 0))
-                D = int(get_val(row, "D", 0))
-                L = int(get_val(row, "L", 0))
+                W = int(get_stat(row, "W", 0))
+                D = int(get_stat(row, "D", 0))
+                L = int(get_stat(row, "L", 0))
 
                 fig_pie = go.Figure(go.Pie(
                     labels=["Vittorie (W)", "Pareggi (D)", "Sconfitte (L)"],
@@ -400,67 +539,67 @@ elif sezione == "👤 Scheda squadra":
                 fig_pie.update_layout(height=320, margin=dict(l=0, r=0, t=30, b=0))
                 st.plotly_chart(fig_pie, use_container_width=True)
 
-                c1, c2, c3, c4 = st.columns(4)
-                with c1: st.metric("Partite", GP)
-                with c2: st.metric("Win %", f"{(W/GP*100):.1f}%")
-                with c3: st.metric("Draw %", f"{(D/GP*100):.1f}%")
-                with c4: st.metric("Loss %", f"{(L/GP*100):.1f}%")
+                c1_p, c2_p, c3_p, c4_p = st.columns(4)
+                with c1_p: st.metric("Partite", GP)
+                with c2_p: st.metric("Win %", f"{(W / GP * 100):.1f}%")
+                with c3_p: st.metric("Draw %", f"{(D / GP * 100):.1f}%")
+                with c4_p: st.metric("Loss %", f"{(L / GP * 100):.1f}%")
             else:
                 st.info("Nessuna partita giocata per calcolare le percentuali.")
 
-# ========== SEZIONE 4: Confronto squadre (H2H) ==========
-elif sezione == "⚖️ Confronto squadre (H2H)":
-    st.header("⚖️ Confronto squadre (H2H) – statistiche medie")
+# ========== Confronto integrato nel pronostico ==========
+with tab2:
+    st.divider()
+    st.header("⚖️ Confronto della sfida")
+    st.caption("Confronta le medie delle due squadre del match selezionato sopra.")
 
-    teams_list = sorted(table["team"].dropna().unique().astype(str))
+    h2h_teamA, h2h_teamB = pred_home, pred_away
 
-    col1, col2 = st.columns(2)
-    with col1:
-        team_a = st.selectbox("Squadra A", options=teams_list, key="h2h_a")
-    with col2:
-        team_b = st.selectbox("Squadra B", options=teams_list, key="h2h_b")
-
-    if team_a == team_b:
-        st.warning("Seleziona due squadre diverse.")
+    if h2h_teamA == h2h_teamB:
+        st.warning("Seleziona due squadre diverse per il confronto.")
     else:
-        if team_a not in table["team"].values or team_b not in table["team"].values:
-            st.error("Errore nei dati: una delle squadre non è presente in classifica.")
+        rowA = table[table["team"] == h2h_teamA]
+        rowB = table[table["team"] == h2h_teamB]
+
+        if rowA.empty or rowB.empty:
+            st.error("Una delle due squadre non è presente in classifica.")
         else:
-            a = table[table["team"] == team_a].iloc[0]
-            b = table[table["team"] == team_b].iloc[0]
+            rA, rB = rowA.iloc[0], rowB.iloc[0]
 
-            df_h2h = pd.DataFrame({
-                "Statistica": [
-                    "Partite giocate", "Punti totali", "PPG",
-                    "Gol fatti/partita", "Gol subiti/partita",
-                    "xG fatti/partita", "xG subiti/partita",
-                    "Possesso medio %", "Differenza reti", "Percentuale vittorie",
-                ],
-                team_a: [
-                    int(a.GP), int(a.Pts), f"{a.PPG:.2f}",
-                    f"{a.GF/a.GP:.2f}" if a.GP>0 else "0",
-                    f"{a.GA/a.GP:.2f}" if a.GP>0 else "0",
-                    f"{a.get('XGF_pG',0):.2f}", f"{a.get('XGA_pG',0):.2f}",
-                    f"{a.get('PossAvg',0):.1f}", f"{a.GD:+}", f"{a.WinRate:.1f}",
-                ],
-                team_b: [
-                    int(b.GP), int(b.Pts), f"{b.PPG:.2f}",
-                    f"{b.GF/b.GP:.2f}" if b.GP>0 else "0",
-                    f"{b.GA/b.GP:.2f}" if b.GP>0 else "0",
-                    f"{b.get('XGF_pG',0):.2f}", f"{b.get('XGA_pG',0):.2f}",
-                    f"{b.get('PossAvg',0):.1f}", f"{b.GD:+}", f"{b.WinRate:.1f}",
-                ]
-            })
+            gpA = rA["GP"] if rA["GP"] > 0 else 1
+            gpB = rB["GP"] if rB["GP"] > 0 else 1
+            gfpgA, gfpgB = rA["GF"] / gpA, rB["GF"] / gpB
+            gapgA, gapgB = rA["GA"] / gpA, rB["GA"] / gpB
 
-            st.dataframe(df_h2h, use_container_width=True, hide_index=True)
+            colA, colB = h2h_teamA, h2h_teamB
+            rows = [
+                {"Statistica": "Partite giocate (GP)", colA: f"{rA['GP']:.0f}", colB: f"{rB['GP']:.0f}"},
+                {"Statistica": "Punti per gara (PPG)", colA: f"{rA['PPG']:.2f}", colB: f"{rB['PPG']:.2f}"},
+                {"Statistica": "Gol fatti / gara", colA: f"{gfpgA:.2f}", colB: f"{gfpgB:.2f}"},
+                {"Statistica": "Gol subiti / gara", colA: f"{gapgA:.2f}", colB: f"{gapgB:.2f}"},
+                {"Statistica": "Tiri fatti / gara", colA: f"{rA.get('ShotsF_pG', 0):.1f}", colB: f"{rB.get('ShotsF_pG', 0):.1f}"},
+                {"Statistica": "Tiri subiti / gara", colA: f"{rA.get('ShotsA_pG', 0):.1f}", colB: f"{rB.get('ShotsA_pG', 0):.1f}"},
+                {"Statistica": "Tiri in porta fatti / gara", colA: f"{rA.get('StF_pG', 0):.1f}", colB: f"{rB.get('StF_pG', 0):.1f}"},
+                {"Statistica": "Tiri in porta subiti / gara", colA: f"{rA.get('StA_pG', 0):.1f}", colB: f"{rB.get('StA_pG', 0):.1f}"},
+                {"Statistica": "Corner fatti / gara", colA: f"{rA.get('CornersF_pG', 0):.1f}", colB: f"{rB.get('CornersF_pG', 0):.1f}"},
+                {"Statistica": "Corner subiti / gara", colA: f"{rA.get('CornersA_pG', 0):.1f}", colB: f"{rB.get('CornersA_pG', 0):.1f}"},
+                {"Statistica": "Possesso medio %", colA: f"{rA.get('PossAvg', 0):.1f}%", colB: f"{rB.get('PossAvg', 0):.1f}%"},
+                {"Statistica": "Cartellini gialli totali", colA: f"{rA.get('Yellow', 0):.0f}", colB: f"{rB.get('Yellow', 0):.0f}"},
+                {"Statistica": "Cartellini rossi totali", colA: f"{rA.get('Red', 0):.0f}", colB: f"{rB.get('Red', 0):.0f}"},
+                {"Statistica": "Differenza reti (GD)", colA: f"{rA['GD']:.0f}", colB: f"{rB['GD']:.0f}"},
+            ]
+
+            h2h_df = pd.DataFrame(rows)
+            st.subheader("Confronto statistico")
+            st.dataframe(h2h_df, use_container_width=True, hide_index=True)
 
 # ---------------- Export Excel ----------------
-st.subheader("📥 Esporta report")
-if st.button("Genera file Excel"):
+if st.button("Scarica Report Excel"):
     excel = export_excel_bytes(Classifica=table, Partite_Filtrate=df)
     st.download_button(
-        "Scarica report Excel",
+        "Report.xlsx",
         data=excel,
         file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+# Fine app.py
