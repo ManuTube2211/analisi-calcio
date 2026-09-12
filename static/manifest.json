@@ -2,10 +2,10 @@
   "name": "MatchScope",
   "short_name": "MatchScope",
   "description": "Analisi e pronostici calcistici basati sui tuoi dati.",
-  "start_url": "./",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#f4f7fb",
   "theme_color": "#006d77",
   "lang": "it",
-  "icons": [{"src": "./app/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}]
+  "icons": [{"src": "/app/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}]
 }
