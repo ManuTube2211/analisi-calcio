@@ -98,8 +98,15 @@ st.markdown("""
     .news-card-meta { color: #a8b4c2; font-size: .75rem; margin-top: auto; padding-top: .65rem; }
     .news-card-link { color: #ffe780; font-size: .8rem; font-weight: 700; text-decoration: none; margin-top: .25rem; }
     .stTabs [data-baseweb="tab-list"] { gap: .35rem; border-bottom: 1px solid var(--line); }
-    .stTabs [data-baseweb="tab"] { color: #ffe780; font-weight: 650; padding: .6rem 1rem; }
-    .stTabs [aria-selected="true"] { color: #ffe780 !important; border-bottom-color: #ffd54a !important; }
+    /* Streamlit applica il colore al nodo interno della tab: lo imponiamo sia
+       sul bottone sia sui suoi figli, anche quando la tab non è selezionata. */
+    .stTabs [data-baseweb="tab"], .stTabs [data-baseweb="tab"] *,
+    .stTabs button[role="tab"], .stTabs button[role="tab"] * {
+        color: #ffe780 !important;
+        font-weight: 650;
+    }
+    .stTabs [data-baseweb="tab"], .stTabs button[role="tab"] { padding: .6rem 1rem; }
+    .stTabs [aria-selected="true"] { border-bottom-color: #ffd54a !important; }
     [data-testid="stDataFrame"], [data-testid="stTable"] { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
     [data-testid="stTable"] * { color:#fff4ae !important; }
     div[data-testid="stAlert"] { border-radius: 12px; background:#102333; border:1px solid #456d82; }
