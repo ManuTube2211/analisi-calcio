@@ -580,6 +580,61 @@ LIVE_LEAGUES = {
     "conference_league": {"name": "Conference League", "country": "UEFA", "espn_code": "uefa.europa.conf", "limit": 8},
 }
 
+# Codici ufficiali dell'API football-data.org. La disponibilità effettiva di
+# ogni torneo dipende dal piano associato alla chiave dell'utente.
+FOOTBALL_DATA_COMPETITIONS = {
+    "Serie A": "SA",
+    "Premier League": "PL",
+    "LaLiga": "PD",
+    "Bundesliga": "BL1",
+    "Ligue 1": "FL1",
+    "Champions League": "CL",
+}
+
+
+def fetch_football_data_results(api_key: str, competition_code: str) -> pd.DataFrame:
+    """Scarica i risultati conclusi della stagione corrente da football-data.org.
+
+    Restituisce direttamente le cinque colonne minime usate dal modello. I
+    dettagli del token restano esclusivamente nella variabile d'ambiente e non
+    vengono mai inclusi in messaggi di errore o tabelle.
+    """
+    if not api_key:
+        raise ValueError("Manca la chiave FOOTBALL_DATA_API_KEY in Render.")
+
+    response = requests.get(
+        f"https://api.football-data.org/v4/competitions/{competition_code}/matches",
+        params={"status": "FINISHED"},
+        headers={"X-Auth-Token": api_key},
+        timeout=15,
+    )
+    if response.status_code in (401, 403):
+        raise ValueError("La chiave non è valida oppure questo campionato non è incluso nel piano API.")
+    if response.status_code == 429:
+        raise ValueError("Limite API raggiunto: aspetta un minuto prima di riprovare.")
+    response.raise_for_status()
+
+    matches = response.json().get("matches", [])
+    rows = []
+    for match in matches:
+        score = match.get("score", {}).get("fullTime", {})
+        home_score, away_score = score.get("home"), score.get("away")
+        if home_score is None or away_score is None:
+            continue
+        rows.append({
+            "date": match.get("utcDate"),
+            "home_team": match.get("homeTeam", {}).get("name"),
+            "away_team": match.get("awayTeam", {}).get("name"),
+            "home_score": home_score,
+            "away_score": away_score,
+            "competition": match.get("competition", {}).get("name"),
+            "round": match.get("matchday"),
+            "season": match.get("season", {}).get("startDate", "")[:4],
+        })
+    if not rows:
+        raise ValueError("Nessun risultato concluso disponibile per questo campionato.")
+    return pd.DataFrame(rows)
+
 
 def _fetch_one_live_standing(league_key: str, limit: int) -> Dict[str, object]:
     league = LIVE_LEAGUES[league_key]

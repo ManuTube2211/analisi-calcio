@@ -23,6 +23,8 @@ from analysis import (
     match_recommendations,
     fetch_match_news,
     fetch_live_standings,
+    FOOTBALL_DATA_COMPETITIONS,
+    fetch_football_data_results,
 )
 
 st.set_page_config(page_title="MatchScope", page_icon="⚽", layout="wide")
@@ -276,14 +278,20 @@ def _read_and_normalize(raw_bytes: bytes, source_label: str):
     return df
 
 
-def load_data(uploaded_file):
-    """Priorità 1: file caricato dall'utente. Priorità 2: dati_default.csv locale.
+def load_data(uploaded_file, online_data=None, online_label=None):
+    """Priorità 1: file caricato dall'utente. Priorità 2: dati API in sessione.
+    Priorità 3: dati_default.csv locale.
 
     Ritorna (df, source_label, error_message). error_message è None se ok.
     """
     if uploaded_file is not None:
         raw_bytes = uploaded_file.getvalue()
         source_label = "file caricato"
+    elif online_data is not None:
+        try:
+            return normalize_df(online_data), online_label or "football-data.org", None
+        except ValueError as e:
+            return None, online_label, f"Dati online non validi: {e}"
     else:
         try:
             with open("dati_default.csv", "rb") as f:
@@ -321,6 +329,39 @@ def cached_adaptive_calibration(df: pd.DataFrame):
 # ---------------- Sidebar ----------------
 with st.sidebar:
     st.header("Dati")
+    st.caption("Aggiornamento online")
+    online_competition = st.selectbox(
+        "Campionato football-data.org",
+        options=list(FOOTBALL_DATA_COMPETITIONS),
+        key="football_data_competition",
+    )
+    online_col, clear_online_col = st.columns(2)
+    with online_col:
+        update_from_api = st.button("↻ Aggiorna online", use_container_width=True)
+    with clear_online_col:
+        clear_online = st.button("Usa CSV", use_container_width=True)
+
+    if clear_online:
+        st.session_state.pop("football_data_matches", None)
+        st.session_state.pop("football_data_label", None)
+        st.rerun()
+
+    if update_from_api:
+        api_key = os.getenv("FOOTBALL_DATA_API_KEY")
+        try:
+            with st.spinner("Scarico i risultati ufficiali…"):
+                api_results = fetch_football_data_results(
+                    api_key,
+                    FOOTBALL_DATA_COMPETITIONS[online_competition],
+                )
+            st.session_state["football_data_matches"] = api_results
+            st.session_state["football_data_label"] = f"football-data.org · {online_competition}"
+            st.success(f"Aggiornati {len(api_results)} risultati di {online_competition}.")
+        except (requests.RequestException, ValueError) as exc:
+            st.error(f"Aggiornamento online non riuscito: {exc}")
+
+    st.caption("Un aggiornamento usa una richiesta API. I dati restano attivi finché non scegli “Usa CSV”.")
+    st.divider()
     up = st.file_uploader(
         "Carica CSV (Opzionale)",
         type=["csv"],
@@ -347,7 +388,11 @@ with st.sidebar:
     )
 
 # ---------------- Lettura & normalizzazione ----------------
-df_normalized, source_label, error_message = load_data(up)
+df_normalized, source_label, error_message = load_data(
+    up,
+    st.session_state.get("football_data_matches"),
+    st.session_state.get("football_data_label"),
+)
 
 if source_label:
     st.sidebar.info(f"Dati caricati da: {source_label}")
