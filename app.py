@@ -98,7 +98,7 @@ st.markdown("""
     .news-card-meta { color: #a8b4c2; font-size: .75rem; margin-top: auto; padding-top: .65rem; }
     .news-card-link { color: #ffe780; font-size: .8rem; font-weight: 700; text-decoration: none; margin-top: .25rem; }
     .stTabs [data-baseweb="tab-list"] { gap: .35rem; border-bottom: 1px solid var(--line); }
-    .stTabs [data-baseweb="tab"] { color: #b8c5d1; font-weight: 650; padding: .6rem 1rem; }
+    .stTabs [data-baseweb="tab"] { color: #ffe780; font-weight: 650; padding: .6rem 1rem; }
     .stTabs [aria-selected="true"] { color: #ffe780 !important; border-bottom-color: #ffd54a !important; }
     [data-testid="stDataFrame"], [data-testid="stTable"] { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
     [data-testid="stTable"] * { color:#fff4ae !important; }
@@ -330,6 +330,19 @@ def cached_adaptive_calibration(df: pd.DataFrame):
 with st.sidebar:
     st.header("Dati")
     st.caption("Aggiornamento online")
+    # Su Render la chiave vive nella variabile d'ambiente. Nell'app desktop non
+    # esiste invece un ambiente Render: consentiamo quindi di incollarla solo
+    # nella sessione corrente, senza scriverla nel repository o in un CSV.
+    configured_api_key = os.getenv("FOOTBALL_DATA_API_KEY")
+    if configured_api_key:
+        api_key = configured_api_key
+    else:
+        api_key = st.text_input(
+            "Chiave football-data.org (solo app Mac)",
+            type="password",
+            key="local_football_data_api_key",
+            help="Incollala qui nell'app desktop. Resta solo nella sessione aperta e non viene salvata nei file.",
+        ).strip()
     online_competition = st.selectbox(
         "Campionato football-data.org",
         options=list(FOOTBALL_DATA_COMPETITIONS),
@@ -347,7 +360,6 @@ with st.sidebar:
         st.rerun()
 
     if update_from_api:
-        api_key = os.getenv("FOOTBALL_DATA_API_KEY")
         try:
             with st.spinner("Scarico i risultati ufficiali…"):
                 api_results = fetch_football_data_results(
@@ -423,6 +435,14 @@ st.sidebar.caption(f"Statistiche calcolate su {len(df)} partite (dal {min_date.d
 
 # Lista squadre calcolata una sola volta e riusata in tutti i tab
 all_teams = sorted(pd.unique(pd.concat([df["home_team"], df["away_team"]])))
+ADVANCED_STATS_COLUMNS = [
+    "home_possession", "away_possession", "home_shots", "away_shots",
+    "home_corners", "away_corners", "home_yellow", "away_yellow",
+]
+advanced_stats_available = any(
+    column in df and pd.to_numeric(df[column], errors="coerce").fillna(0).ne(0).any()
+    for column in ADVANCED_STATS_COLUMNS
+)
 
 # ---------------- Classifica (cachata: dipende solo da df, win, draw) ----------------
 table = cached_compute_table(df, win, draw)
@@ -581,20 +601,49 @@ with tab3:
 
             GP = int(get_stat(row, "GP", 0))
 
+            # Queste medie si possono calcolare sempre dai risultati ufficiali
+            # e sono perciò disponibili anche con la sorgente football-data.
+            GF = float(get_stat(row, "GF", 0))
+            GA = float(get_stat(row, "GA", 0))
+            clean_sheets = int(((team_matches["home_team"] == team_sel) & (team_matches["away_score"] == 0)).sum())
+            clean_sheets += int(((team_matches["away_team"] == team_sel) & (team_matches["home_score"] == 0)).sum())
+            both_score = (
+                (team_matches["home_score"] > 0) & (team_matches["away_score"] > 0)
+            ).mean() if GP else 0.0
+            over_25 = (
+                (team_matches["home_score"] + team_matches["away_score"] >= 3)
+            ).mean() if GP else 0.0
+
+            st.subheader("Medie dai risultati")
+            core_a, core_b, core_c, core_d = st.columns(4)
+            core_a.metric("Gol fatti / gara", f"{GF / GP:.2f}" if GP else "–")
+            core_b.metric("Gol subiti / gara", f"{GA / GP:.2f}" if GP else "–")
+            core_c.metric("Clean sheet", f"{clean_sheets / GP * 100:.0f}%" if GP else "–")
+            core_d.metric("Over 2.5 / BTTS", f"{over_25 * 100:.0f}% / {both_score * 100:.0f}%" if GP else "–")
+
             st.subheader("Statistiche medie (per partita)")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("Possesso palla medio", f"{get_stat(row, 'PossAvg', 0):.1f}%")
-                st.metric("Tiri fatti / gara", f"{get_stat(row, 'ShotsF_pG', 0):.1f}")
-                st.metric("Tiri in porta fatti / gara", f"{get_stat(row, 'StF_pG', 0):.1f}")
-                st.metric("Corner fatti / gara", f"{get_stat(row, 'CornersF_pG', 0):.1f}")
-            with c2:
-                st.metric("Tiri subiti / gara", f"{get_stat(row, 'ShotsA_pG', 0):.1f}")
-                st.metric("Tiri in porta subiti / gara", f"{get_stat(row, 'StA_pG', 0):.1f}")
-            with c3:
-                st.metric("Corner subiti / gara", f"{get_stat(row, 'CornersA_pG', 0):.1f}")
-                st.metric("Cartellini gialli (totali)", f"{int(get_stat(row, 'Yellow', 0))}")
-                st.metric("Cartellini rossi (totali)", f"{int(get_stat(row, 'Red', 0))}")
+            advanced_available = advanced_stats_available
+            if not advanced_available:
+                st.info("Possesso, tiri, corner e cartellini non sono inclusi nei risultati di football-data.org. Per queste metriche avanzate carica il tuo CSV.")
+            else:
+                # Inserimento per righe, non per colonne: così ogni riquadro
+                # riempie il primo spazio libero e la griglia resta compatta.
+                advanced_metrics = [
+                    ("Possesso palla medio", f"{get_stat(row, 'PossAvg', 0):.1f}%"),
+                    ("Tiri subiti / gara", f"{get_stat(row, 'ShotsA_pG', 0):.1f}"),
+                    ("Corner subiti / gara", f"{get_stat(row, 'CornersA_pG', 0):.1f}"),
+                    ("Tiri fatti / gara", f"{get_stat(row, 'ShotsF_pG', 0):.1f}"),
+                    ("Tiri in porta subiti / gara", f"{get_stat(row, 'StA_pG', 0):.1f}"),
+                    ("Cartellini gialli (totali)", f"{int(get_stat(row, 'Yellow', 0))}"),
+                    ("Tiri in porta fatti / gara", f"{get_stat(row, 'StF_pG', 0):.1f}"),
+                    ("Corner fatti / gara", f"{get_stat(row, 'CornersF_pG', 0):.1f}"),
+                    ("Cartellini rossi (totali)", f"{int(get_stat(row, 'Red', 0))}"),
+                ]
+                for start in range(0, len(advanced_metrics), 3):
+                    metric_columns = st.columns(3)
+                    for metric_column, (label, value) in zip(metric_columns, advanced_metrics[start:start + 3]):
+                        with metric_column:
+                            st.metric(label, value)
 
             st.subheader("Ripartizione esiti stagione")
             if GP > 0:
@@ -769,17 +818,15 @@ with tab2:
                 {"Statistica": "Punti per gara (PPG)", colA: f"{rA['PPG']:.2f}", colB: f"{rB['PPG']:.2f}"},
                 {"Statistica": "Gol fatti / gara", colA: f"{gfpgA:.2f}", colB: f"{gfpgB:.2f}"},
                 {"Statistica": "Gol subiti / gara", colA: f"{gapgA:.2f}", colB: f"{gapgB:.2f}"},
-                {"Statistica": "Tiri fatti / gara", colA: f"{rA.get('ShotsF_pG', 0):.1f}", colB: f"{rB.get('ShotsF_pG', 0):.1f}"},
-                {"Statistica": "Tiri subiti / gara", colA: f"{rA.get('ShotsA_pG', 0):.1f}", colB: f"{rB.get('ShotsA_pG', 0):.1f}"},
-                {"Statistica": "Tiri in porta fatti / gara", colA: f"{rA.get('StF_pG', 0):.1f}", colB: f"{rB.get('StF_pG', 0):.1f}"},
-                {"Statistica": "Tiri in porta subiti / gara", colA: f"{rA.get('StA_pG', 0):.1f}", colB: f"{rB.get('StA_pG', 0):.1f}"},
-                {"Statistica": "Corner fatti / gara", colA: f"{rA.get('CornersF_pG', 0):.1f}", colB: f"{rB.get('CornersF_pG', 0):.1f}"},
-                {"Statistica": "Corner subiti / gara", colA: f"{rA.get('CornersA_pG', 0):.1f}", colB: f"{rB.get('CornersA_pG', 0):.1f}"},
-                {"Statistica": "Possesso medio %", colA: f"{rA.get('PossAvg', 0):.1f}%", colB: f"{rB.get('PossAvg', 0):.1f}%"},
-                {"Statistica": "Cartellini gialli totali", colA: f"{rA.get('Yellow', 0):.0f}", colB: f"{rB.get('Yellow', 0):.0f}"},
-                {"Statistica": "Cartellini rossi totali", colA: f"{rA.get('Red', 0):.0f}", colB: f"{rB.get('Red', 0):.0f}"},
                 {"Statistica": "Differenza reti (GD)", colA: f"{rA['GD']:.0f}", colB: f"{rB['GD']:.0f}"},
             ]
+            if advanced_stats_available:
+                rows[4:4] = [
+                    {"Statistica": "Tiri fatti / gara", colA: f"{rA.get('ShotsF_pG', 0):.1f}", colB: f"{rB.get('ShotsF_pG', 0):.1f}"},
+                    {"Statistica": "Tiri subiti / gara", colA: f"{rA.get('ShotsA_pG', 0):.1f}", colB: f"{rB.get('ShotsA_pG', 0):.1f}"},
+                    {"Statistica": "Tiri in porta fatti / gara", colA: f"{rA.get('StF_pG', 0):.1f}", colB: f"{rB.get('StA_pG', 0):.1f}"},
+                    {"Statistica": "Possesso medio %", colA: f"{rA.get('PossAvg', 0):.1f}%", colB: f"{rB.get('PossAvg', 0):.1f}%"},
+                ]
 
             h2h_df = pd.DataFrame(rows)
             st.subheader("Confronto statistico")
