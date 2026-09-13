@@ -100,12 +100,13 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { gap: .35rem; border-bottom: 1px solid var(--line); }
     /* Streamlit applica il colore al nodo interno della tab: lo imponiamo sia
        sul bottone sia sui suoi figli, anche quando la tab non è selezionata. */
+    .stTabs [data-testid="stTab"], .stTabs [data-testid="stTab"] *,
     .stTabs [data-baseweb="tab"], .stTabs [data-baseweb="tab"] *,
     .stTabs button[role="tab"], .stTabs button[role="tab"] * {
         color: #ffe780 !important;
         font-weight: 650;
     }
-    .stTabs [data-baseweb="tab"], .stTabs button[role="tab"] { padding: .6rem 1rem; }
+    .stTabs [data-testid="stTab"], .stTabs [data-baseweb="tab"], .stTabs button[role="tab"] { padding: .6rem 1rem; }
     .stTabs [aria-selected="true"] { border-bottom-color: #ffd54a !important; }
     [data-testid="stDataFrame"], [data-testid="stTable"] { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
     [data-testid="stTable"] * { color:#fff4ae !important; }
