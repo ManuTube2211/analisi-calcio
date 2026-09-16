@@ -23,8 +23,6 @@ from analysis import (
     match_recommendations,
     fetch_match_news,
     fetch_live_standings,
-    FOOTBALL_DATA_COMPETITIONS,
-    fetch_football_data_results,
 )
 
 st.set_page_config(page_title="MatchScope", page_icon="⚽", layout="wide")
@@ -110,18 +108,36 @@ st.markdown("""
     .stTabs [aria-selected="true"] { border-bottom-color: #ffd54a !important; }
     [data-testid="stDataFrame"], [data-testid="stTable"] { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
     [data-testid="stTable"] * { color:#fff4ae !important; }
+    /* I controlli e le tabelle del pianificatore devono restare leggibili
+       anche con il tema scuro di Streamlit. */
+    [data-testid="stNumberInput"] [data-baseweb="input"],
+    [data-testid="stNumberInput"] input {
+        background:#102333 !important; color:#fff4ae !important;
+        -webkit-text-fill-color:#fff4ae !important;
+    }
+    [data-testid="stNumberInput"] label,
+    [data-testid="stSlider"] label,
+    [data-testid="stSelectSlider"] label { color:#ffe780 !important; }
     div[data-testid="stAlert"] { border-radius: 12px; background:#102333; border:1px solid #456d82; }
     div[data-testid="stAlert"] * { color:#ffe780 !important; }
     .stButton > button, .stDownloadButton > button { background: #d89b00; color: #07111f; border: 0; border-radius: 9px; font-weight: 800; }
     .stButton > button:hover, .stDownloadButton > button:hover { background: #ffe780; color: #07111f; }
-    .jarvis-orb-wrap { display:flex; justify-content:center; margin:-.25rem 0 1rem; }
-    .jarvis-orb { width:86px; height:86px; border-radius:50%; position:relative; overflow:hidden; border:2px solid #ffe780;
-        background: radial-gradient(circle at 30% 28%, #fff8bb 0 4%, #ffd54a 6%, #d89100 28%, #152838 64%, #050b14 100%);
-        box-shadow: 0 0 10px #ffd54a, 0 0 35px rgba(255,213,74,.75), inset -14px -12px 24px rgba(0,0,0,.65); animation: orb-float 3.5s ease-in-out infinite; }
-    .jarvis-orb:before { content:""; position:absolute; inset:12px; border-radius:50%; border:1px dashed rgba(7,17,31,.75); animation: orb-spin 4s linear infinite; }
-    .jarvis-orb:after { content:"⚽"; display:grid; place-items:center; position:absolute; inset:0; font-size:46px; filter:drop-shadow(0 0 4px #fff4ae); animation: orb-spin 7s linear infinite reverse; }
-    @keyframes orb-spin { to { transform:rotate(360deg); } }
-    @keyframes orb-float { 50% { transform:translateY(-7px) scale(1.035); } }
+    .matchscope-title { margin:.75rem 0 .35rem; color:#ffe780; font-family:"Avenir Next", "Trebuchet MS", sans-serif;
+        font-size:2.55rem; font-weight:800; letter-spacing:.035em; text-shadow:0 0 18px rgba(255,213,74,.3); }
+    .match-core-wrap { display:flex; justify-content:center; margin:.25rem 0 1.1rem; height:116px; align-items:center; }
+    .match-core { width:82px; height:82px; position:relative; display:grid; place-items:center; transform:rotate(30deg);
+        border:1px solid #ffd54a; background:linear-gradient(145deg, rgba(37,120,158,.62), rgba(5,11,20,.96));
+        box-shadow:0 0 12px rgba(255,213,74,.8), 0 0 34px rgba(47,190,255,.32), inset 0 0 24px rgba(31,178,235,.2);
+        animation:core-float 3.8s ease-in-out infinite; }
+    .match-core:before, .match-core:after { content:""; position:absolute; inset:-18px; border:1px solid rgba(84,205,255,.55); transform:rotate(15deg); }
+    .match-core:after { inset:-31px; border-color:rgba(255,213,74,.28); animation:core-spin 8s linear infinite; }
+    .match-core-ring { position:absolute; width:55px; height:55px; border:2px solid rgba(255,231,128,.82); border-radius:50%;
+        box-shadow:0 0 13px rgba(255,213,74,.55); animation:core-spin 4.5s linear infinite reverse; }
+    .match-core-ring:before { content:""; position:absolute; width:8px; height:8px; top:-5px; left:50%; border-radius:50%; background:#fff4ae; box-shadow:0 0 12px #ffd54a; }
+    .match-core-mark { position:relative; transform:rotate(-30deg); color:#fff4ae; font-size:31px; font-weight:900; line-height:1;
+        text-shadow:0 0 12px #ffd54a; }
+    @keyframes core-spin { to { transform:rotate(360deg); } }
+    @keyframes core-float { 50% { transform:rotate(30deg) translateY(-7px) scale(1.04); } }
     .standing-panel { margin:0 0 .7rem; padding:.65rem .7rem; background:rgba(8,19,31,.88); border:1px solid #31546b; border-left:3px solid #ffd54a; border-radius:10px; }
     .standing-title { color:#ffe780; font-size:.87rem; font-weight:800; letter-spacing:.035em; }.standing-country{ color:#92a4b5; font-size:.68rem; }
     .standing-row { display:grid; grid-template-columns:20px 1fr 24px 27px; gap:.25rem; padding:.22rem 0; border-top:1px solid rgba(71,104,126,.38); color:#e7edf3; font-size:.74rem; }.standing-head{color:#8ea3b5;font-size:.64rem;border-top:0;padding-top:.42rem}.standing-team{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.standing-pts{color:#ffe780;font-weight:800;text-align:right}
@@ -136,19 +152,19 @@ st.markdown("""
         [data-testid="stMetric"] { padding: .7rem; }
         [data-testid="stMetricValue"] { font-size: 1.45rem; }
         .stTabs [data-baseweb="tab"] { font-size: .78rem; padding: .55rem .35rem; }
-        .jarvis-orb { width:72px; height:72px; } .jarvis-orb:after { font-size:38px; }
+        .matchscope-title { font-size:2.05rem; margin-top:.35rem; }
+        .match-core-wrap { height:100px; }
+        .match-core { width:66px; height:66px; }
     }
 </style>
 """, unsafe_allow_html=True)
-st.markdown("""
-<div class="hero">
-  <p class="hero-kicker">MATCH INTELLIGENCE · LIVE DATA</p>
-  <h1>⚽ MatchScope</h1>
-  <p>Analisi squadra per squadra, probabilità trasparenti e pronostici costruiti sui dati della sfida.</p>
-</div>
-""", unsafe_allow_html=True)
-st.markdown('<div class="jarvis-orb-wrap"><div class="jarvis-orb" aria-label="Palla animata"></div></div>', unsafe_allow_html=True)
-st.caption("CSV richiesto: date, home_team, away_team, home_score, away_score, statistiche opzionali...")
+st.markdown('<div class="matchscope-title">MatchScope</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="match-core-wrap" aria-label="Nucleo dati animato">'
+    '<div class="match-core"><span class="match-core-ring"></span>'
+    '<span class="match-core-mark">⌁</span></div></div>',
+    unsafe_allow_html=True,
+)
 
 # ---------------- Notizie live sempre disponibili ----------------
 @st.cache_data(ttl=600, show_spinner=False)
@@ -157,10 +173,10 @@ def cached_match_news(home_team: str, away_team: str):
     return fetch_match_news(home_team, away_team)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
-def cached_live_standings():
-    """Cache di dieci minuti per evitare chiamate live a ogni interazione."""
-    return fetch_live_standings()
+@st.cache_data(ttl=120, show_spinner=False)
+def cached_live_standings(refresh_token: str):
+    """Cache breve; il token cambia quando l'utente richiede un refresh."""
+    return fetch_live_standings(refresh_token)
 
 
 def render_standing(standing):
@@ -229,11 +245,14 @@ with home_news_tab:
 with home_standings_tab:
     st.markdown('<div class="home-tab-title">Classifiche live</div><div class="home-tab-subtitle">Campionati nazionali e competizioni UEFA, con partite giocate e punti aggiornati.</div>', unsafe_allow_html=True)
     refresh_homepage_tables = st.button("↻ Aggiorna classifiche", key="refresh_homepage_tables")
+    if "standings_refresh_token" not in st.session_state:
+        st.session_state["standings_refresh_token"] = "initial"
     if refresh_homepage_tables:
-        cached_live_standings.clear()
+        st.session_state["standings_refresh_token"] = datetime.now().isoformat(timespec="microseconds")
+        st.session_state["standings_refreshed_at"] = datetime.now().strftime("%H:%M:%S")
     try:
         with st.spinner("Aggiorno le classifiche…"):
-            live_standings = cached_live_standings()
+            live_standings = cached_live_standings(st.session_state["standings_refresh_token"])
     except requests.RequestException:
         live_standings = {}
 
@@ -249,7 +268,9 @@ with home_standings_tab:
             with column:
                 if standing:
                     st.markdown(render_standing(standing), unsafe_allow_html=True)
-    st.caption("Dati live ESPN · prime 5 dei campionati nazionali e prime 8 delle competizioni UEFA.")
+    refreshed_at = st.session_state.get("standings_refreshed_at")
+    refresh_note = f" · ultimo aggiornamento richiesto alle {refreshed_at}" if refreshed_at else ""
+    st.caption(f"Dati live ESPN · prime 5 dei campionati nazionali e prime 8 delle competizioni UEFA{refresh_note}.")
 
 st.divider()
 
@@ -286,20 +307,18 @@ def _read_and_normalize(raw_bytes: bytes, source_label: str):
     return df
 
 
-def load_data(uploaded_file, online_data=None, online_label=None):
-    """Priorità 1: file caricato dall'utente. Priorità 2: dati API in sessione.
-    Priorità 3: dati_default.csv locale.
+def load_data(uploaded_file):
+    """Carica le statistiche esclusivamente da un CSV dell'utente.
+
+    Se non viene selezionato un file usa `dati_default.csv`, quando presente
+    nella cartella dell'app. Le sorgenti online restano limitate a notizie e
+    classifiche della homepage.
 
     Ritorna (df, source_label, error_message). error_message è None se ok.
     """
     if uploaded_file is not None:
         raw_bytes = uploaded_file.getvalue()
         source_label = "file caricato"
-    elif online_data is not None:
-        try:
-            return normalize_df(online_data), online_label or "football-data.org", None
-        except ValueError as e:
-            return None, online_label, f"Dati online non validi: {e}"
     else:
         try:
             with open("dati_default.csv", "rb") as f:
@@ -334,58 +353,22 @@ def cached_adaptive_calibration(df: pd.DataFrame):
     return adaptive_goal_calibration(df)
 
 
+def refresh_csv_analysis():
+    """Forza il ricalcolo non appena l'utente sceglie un nuovo CSV."""
+    _read_and_normalize.clear()
+    cached_compute_table.clear()
+    cached_adaptive_calibration.clear()
+
+
 # ---------------- Sidebar ----------------
 with st.sidebar:
     st.header("Dati")
-    st.caption("Aggiornamento online")
-    # Su Render la chiave vive nella variabile d'ambiente. Nell'app desktop non
-    # esiste invece un ambiente Render: consentiamo quindi di incollarla solo
-    # nella sessione corrente, senza scriverla nel repository o in un CSV.
-    configured_api_key = os.getenv("FOOTBALL_DATA_API_KEY")
-    if configured_api_key:
-        api_key = configured_api_key
-    else:
-        api_key = st.text_input(
-            "Chiave football-data.org (solo app Mac)",
-            type="password",
-            key="local_football_data_api_key",
-            help="Incollala qui nell'app desktop. Resta solo nella sessione aperta e non viene salvata nei file.",
-        ).strip()
-    online_competition = st.selectbox(
-        "Campionato football-data.org",
-        options=list(FOOTBALL_DATA_COMPETITIONS),
-        key="football_data_competition",
-    )
-    online_col, clear_online_col = st.columns(2)
-    with online_col:
-        update_from_api = st.button("↻ Aggiorna online", use_container_width=True)
-    with clear_online_col:
-        clear_online = st.button("Usa CSV", use_container_width=True)
-
-    if clear_online:
-        st.session_state.pop("football_data_matches", None)
-        st.session_state.pop("football_data_label", None)
-        st.rerun()
-
-    if update_from_api:
-        try:
-            with st.spinner("Scarico i risultati ufficiali…"):
-                api_results = fetch_football_data_results(
-                    api_key,
-                    FOOTBALL_DATA_COMPETITIONS[online_competition],
-                )
-            st.session_state["football_data_matches"] = api_results
-            st.session_state["football_data_label"] = f"football-data.org · {online_competition}"
-            st.success(f"Aggiornati {len(api_results)} risultati di {online_competition}.")
-        except (requests.RequestException, ValueError) as exc:
-            st.error(f"Aggiornamento online non riuscito: {exc}")
-
-    st.caption("Un aggiornamento usa una richiesta API. I dati restano attivi finché non scegli “Usa CSV”.")
-    st.divider()
     up = st.file_uploader(
-        "Carica CSV (Opzionale)",
+        "Carica il tuo CSV",
         type=["csv"],
-        help="Se non carichi un file, verrà usato il 'dati_default.csv' locale.",
+        key="matchscope_csv_upload",
+        on_change=refresh_csv_analysis,
+        help="Il file viene analizzato immediatamente dopo la selezione. Se non ne carichi uno, viene usato 'dati_default.csv' locale.",
     )
     st.code(
         "date;home_team;away_team;home_score;away_score\n"
@@ -408,11 +391,7 @@ with st.sidebar:
     )
 
 # ---------------- Lettura & normalizzazione ----------------
-df_normalized, source_label, error_message = load_data(
-    up,
-    st.session_state.get("football_data_matches"),
-    st.session_state.get("football_data_label"),
-)
+df_normalized, source_label, error_message = load_data(up)
 
 if source_label:
     st.sidebar.info(f"Dati caricati da: {source_label}")
@@ -445,6 +424,7 @@ st.sidebar.caption(f"Statistiche calcolate su {len(df)} partite (dal {min_date.d
 all_teams = sorted(pd.unique(pd.concat([df["home_team"], df["away_team"]])))
 ADVANCED_STATS_COLUMNS = [
     "home_possession", "away_possession", "home_shots", "away_shots",
+    "home_shots_on_target", "away_shots_on_target",
     "home_corners", "away_corners", "home_yellow", "away_yellow",
 ]
 advanced_stats_available = any(
@@ -455,6 +435,51 @@ advanced_stats_available = any(
 # ---------------- Classifica (cachata: dipende solo da df, win, draw) ----------------
 table = cached_compute_table(df, win, draw)
 calibration = cached_adaptive_calibration(df)
+
+
+def _series_average(values: pd.Series) -> float | None:
+    """Restituisce una media numerica, oppure None se lo storico non esiste."""
+    numeric_values = pd.to_numeric(values, errors="coerce").dropna()
+    return float(numeric_values.mean()) if not numeric_values.empty else None
+
+
+def _venue_average(primary: pd.Series, fallback: pd.Series) -> float:
+    """Privilegia casa/trasferta; con pochi dati usa la media stagionale."""
+    primary_average = _series_average(primary)
+    return primary_average if primary_average is not None else float(_series_average(fallback) or 0.0)
+
+
+def estimate_match_volume(
+    matches: pd.DataFrame, home_team: str, away_team: str, home_column: str, away_column: str,
+) -> tuple[float, float]:
+    """Stima una statistica di volume combinando produzione e dato concesso.
+
+    Per la squadra di casa, ad esempio, media i suoi tiri prodotti in casa
+    con i tiri concessi in trasferta dall'avversaria. Il ragionamento è
+    speculare per la squadra ospite.
+    """
+    home_at_home = matches["home_team"].eq(home_team)
+    home_at_away = matches["away_team"].eq(home_team)
+    away_at_home = matches["home_team"].eq(away_team)
+    away_at_away = matches["away_team"].eq(away_team)
+
+    home_for = _venue_average(
+        matches.loc[home_at_home, home_column],
+        pd.concat([matches.loc[home_at_home, home_column], matches.loc[home_at_away, away_column]]),
+    )
+    home_against = _venue_average(
+        matches.loc[home_at_home, away_column],
+        pd.concat([matches.loc[home_at_home, away_column], matches.loc[home_at_away, home_column]]),
+    )
+    away_for = _venue_average(
+        matches.loc[away_at_away, away_column],
+        pd.concat([matches.loc[away_at_home, home_column], matches.loc[away_at_away, away_column]]),
+    )
+    away_against = _venue_average(
+        matches.loc[away_at_away, home_column],
+        pd.concat([matches.loc[away_at_home, away_column], matches.loc[away_at_away, home_column]]),
+    )
+    return (home_for + away_against) / 2, (away_for + home_against) / 2
 
 # ---------------- Tabs ----------------
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -543,6 +568,42 @@ with tab2:
         sub = st.columns(2)
         sub[0].metric(f"{pred_home} gol stimati", f"{gd['lambda_home']:.2f}")
         sub[1].metric(f"{pred_away} gol stimati", f"{gd['lambda_away']:.2f}")
+
+        volume_metrics = [
+            ("Corner previsti", "home_corners", "away_corners"),
+            ("Tiri previsti", "home_shots", "away_shots"),
+            ("Tiri in porta previsti", "home_shots_on_target", "away_shots_on_target"),
+        ]
+        available_volume_metrics = [
+            metric for metric in volume_metrics
+            if any(
+                pd.to_numeric(df[column], errors="coerce").fillna(0).ne(0).any()
+                for column in metric[1:]
+            )
+        ]
+        st.divider()
+        st.subheader("🎯 Statistiche previste della partita")
+        if not available_volume_metrics:
+            st.info(
+                "Per stimare corner e tiri serve un CSV che contenga queste statistiche. "
+                "I risultati scaricati online includono solo punteggi e classifiche."
+            )
+        else:
+            st.caption(
+                "La stima combina la media prodotta dalla squadra nel proprio campo "
+                "con la media concessa dall'avversaria in trasferta."
+            )
+            forecast_columns = st.columns(len(available_volume_metrics))
+            for forecast_column, (label, home_column, away_column) in zip(forecast_columns, available_volume_metrics):
+                home_estimate, away_estimate = estimate_match_volume(
+                    df, pred_home, pred_away, home_column, away_column,
+                )
+                with forecast_column:
+                    st.metric(label, f"{home_estimate + away_estimate:.1f}")
+                    st.caption(
+                        f"{pred_home}: **{home_estimate:.1f}**  ·  "
+                        f"{pred_away}: **{away_estimate:.1f}**"
+                    )
 
         tot = gd["total_goals_dist"]
         tot_labels = [str(i) for i in range(len(tot))]
@@ -757,7 +818,7 @@ with tab5:
             })
             current_budget = next_budget
         st.subheader("Percorso simulato")
-        st.dataframe(pd.DataFrame(plan_rows), use_container_width=True, hide_index=True)
+        st.table(pd.DataFrame(plan_rows))
 
         st.subheader("Mercati teoricamente compatibili con lo step")
         if pred_home == pred_away:
@@ -788,7 +849,7 @@ with tab5:
                         "Compatibilità": "Nella fascia dello step",
                     })
             if compatible:
-                st.dataframe(pd.DataFrame(compatible), use_container_width=True, hide_index=True)
+                st.table(pd.DataFrame(compatible))
             else:
                 st.info("Nessun mercato teorico del match selezionato rientra nella fascia di questo step.")
             st.caption(
@@ -832,7 +893,10 @@ with tab2:
                 rows[4:4] = [
                     {"Statistica": "Tiri fatti / gara", colA: f"{rA.get('ShotsF_pG', 0):.1f}", colB: f"{rB.get('ShotsF_pG', 0):.1f}"},
                     {"Statistica": "Tiri subiti / gara", colA: f"{rA.get('ShotsA_pG', 0):.1f}", colB: f"{rB.get('ShotsA_pG', 0):.1f}"},
-                    {"Statistica": "Tiri in porta fatti / gara", colA: f"{rA.get('StF_pG', 0):.1f}", colB: f"{rB.get('StA_pG', 0):.1f}"},
+                    {"Statistica": "Tiri in porta fatti / gara", colA: f"{rA.get('StF_pG', 0):.1f}", colB: f"{rB.get('StF_pG', 0):.1f}"},
+                    {"Statistica": "Tiri in porta subiti / gara", colA: f"{rA.get('StA_pG', 0):.1f}", colB: f"{rB.get('StA_pG', 0):.1f}"},
+                    {"Statistica": "Corner fatti / gara", colA: f"{rA.get('CornersF_pG', 0):.1f}", colB: f"{rB.get('CornersF_pG', 0):.1f}"},
+                    {"Statistica": "Corner subiti / gara", colA: f"{rA.get('CornersA_pG', 0):.1f}", colB: f"{rB.get('CornersA_pG', 0):.1f}"},
                     {"Statistica": "Possesso medio %", colA: f"{rA.get('PossAvg', 0):.1f}%", colB: f"{rB.get('PossAvg', 0):.1f}%"},
                 ]
 

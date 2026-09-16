@@ -636,13 +636,19 @@ def fetch_football_data_results(api_key: str, competition_code: str) -> pd.DataF
     return pd.DataFrame(rows)
 
 
-def _fetch_one_live_standing(league_key: str, limit: int) -> Dict[str, object]:
+def _fetch_one_live_standing(league_key: str, limit: int, refresh_token: str = "") -> Dict[str, object]:
     league = LIVE_LEAGUES[league_key]
     url = f"https://site.api.espn.com/apis/v2/sports/soccer/{league['espn_code']}/standings"
     try:
         # Il feed pubblico risponde senza credenziali: non inviare un User-Agent
         # applicativo, perché alcuni edge ESPN lo rifiutano con 403.
-        response = requests.get(url, timeout=8)
+        # Il token cambia ad ogni refresh manuale: impedisce a cache intermedie
+        # di restituire lo stesso payload già mostrato pochi istanti prima.
+        response = requests.get(
+            url,
+            params={"_": refresh_token} if refresh_token else None,
+            timeout=8,
+        )
         response.raise_for_status()
         payload = response.json()
         entries = payload["children"][0]["standings"]["entries"]
@@ -663,12 +669,16 @@ def _fetch_one_live_standing(league_key: str, limit: int) -> Dict[str, object]:
         return {**league, "rows": [], "error": str(exc)}
 
 
-def fetch_live_standings() -> Dict[str, Dict[str, object]]:
-    """Recupera in parallelo le prime posizioni, con limiti per competizione."""
+def fetch_live_standings(refresh_token: str = "") -> Dict[str, Dict[str, object]]:
+    """Recupera in parallelo le prime posizioni, con limiti per competizione.
+
+    `refresh_token` viene usato soltanto per distinguere un aggiornamento
+    manuale e richiedere una risposta fresca al provider.
+    """
     results: Dict[str, Dict[str, object]] = {}
     with ThreadPoolExecutor(max_workers=len(LIVE_LEAGUES)) as executor:
         futures = {
-            executor.submit(_fetch_one_live_standing, key, int(league["limit"])): key
+            executor.submit(_fetch_one_live_standing, key, int(league["limit"]), refresh_token): key
             for key, league in LIVE_LEAGUES.items()
         }
         for future in as_completed(futures):
