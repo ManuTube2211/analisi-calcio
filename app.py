@@ -141,6 +141,29 @@ st.markdown("""
     .standing-panel { margin:0 0 .7rem; padding:.65rem .7rem; background:rgba(8,19,31,.88); border:1px solid #31546b; border-left:3px solid #ffd54a; border-radius:10px; }
     .standing-title { color:#ffe780; font-size:.87rem; font-weight:800; letter-spacing:.035em; }.standing-country{ color:#92a4b5; font-size:.68rem; }
     .standing-row { display:grid; grid-template-columns:20px 1fr 24px 27px; gap:.25rem; padding:.22rem 0; border-top:1px solid rgba(71,104,126,.38); color:#e7edf3; font-size:.74rem; }.standing-head{color:#8ea3b5;font-size:.64rem;border-top:0;padding-top:.42rem}.standing-team{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.standing-pts{color:#ffe780;font-weight:800;text-align:right}
+    /* Tema chiaro */
+    :root { --ink:#18283b; --muted:#64748b; --brand:#b77900; --accent:#d99400; --surface:#ffffff; --line:#d6e0ea; }
+    .stApp { background:radial-gradient(circle at 50% -20%, #fff4c9 0, #f7fafc 35%, #edf3f8 100%); color:var(--ink); }
+    [data-testid="stHeader"] { background:rgba(255,255,255,.88); }
+    [data-testid="stSidebar"] { background:#f8fbfe; border-right:1px solid var(--line); }
+    [data-testid="stSidebar"] *, p, label, [data-testid="stCaptionContainer"] { color:var(--ink); }
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"], [data-testid="stFileUploaderDropzone"] { background:#fff; border-color:#b7c9d9; }
+    [data-testid="stSidebar"] [data-baseweb="input"], [data-testid="stSidebar"] input, [data-baseweb="input"], input { background:#fff !important; color:var(--ink) !important; -webkit-text-fill-color:var(--ink) !important; }
+    [data-testid="stNumberInput"] [data-baseweb="input"], [data-testid="stNumberInput"] input { background:#fff !important; color:var(--ink) !important; -webkit-text-fill-color:var(--ink) !important; }
+    [data-testid="stNumberInput"] label, [data-testid="stSlider"] label, [data-testid="stSelectSlider"] label { color:var(--ink) !important; }
+    [data-testid="stSidebar"] pre, [data-testid="stSidebar"] code, [data-testid="stSidebar"] [data-testid="stCode"] { background:#fff8dc !important; color:#493400 !important; border-color:#e6cb79 !important; }
+    h1, h2, h3, [data-testid="stMetricLabel"] { color:var(--ink); }
+    [data-testid="stMetric"], .pick, .news-card { background:#fff; border-color:#d4dee8; box-shadow:0 6px 18px rgba(22,40,59,.07); }
+    [data-testid="stMetricValue"], .pick-value, .news-card-title { color:#172a3d; }
+    .pick-title, .pick-meta, .news-card-meta, .control-note, .home-tab-subtitle { color:#5f7082; }
+    .home-tab-title, .news-card-link, .matchscope-title { color:#9a6500; text-shadow:none; }
+    .stTabs [data-testid="stTab"], .stTabs [data-testid="stTab"] *, .stTabs [data-baseweb="tab"], .stTabs [data-baseweb="tab"] *, .stTabs button[role="tab"], .stTabs button[role="tab"] * { color:#384b5d !important; }
+    .stTabs [aria-selected="true"], .stTabs [aria-selected="true"] * { color:#9a6500 !important; }
+    [data-testid="stTable"] * { color:#18283b !important; }
+    div[data-testid="stAlert"] { background:#fffdf3; border-color:#ecd58b; }
+    div[data-testid="stAlert"] * { color:#4b3a13 !important; }
+    .standing-panel { background:#fff; border-color:#d4dee8; border-left-color:#c88900; }
+    .standing-title, .standing-pts { color:#3b2b00; }.standing-country,.standing-head { color:#64748b; }.standing-row { color:#24384b; border-top-color:#e4ebf1; }
     @media (max-width: 640px) {
         .block-container { padding: 0.8rem 0.8rem 2rem; }
         .hero { padding: 1.1rem; border-radius: 16px; margin-bottom: 1rem; }
@@ -308,37 +331,21 @@ def _read_and_normalize(raw_bytes: bytes, source_label: str):
 
 
 def load_data(uploaded_file):
-    """Carica le statistiche esclusivamente da un CSV dell'utente.
-
-    Se non viene selezionato un file usa `dati_default.csv`, quando presente
-    nella cartella dell'app. Le sorgenti online restano limitate a notizie e
-    classifiche della homepage.
-
-    Ritorna (df, source_label, error_message). error_message è None se ok.
-    """
-    if uploaded_file is not None:
-        raw_bytes = uploaded_file.getvalue()
-        source_label = "file caricato"
-    else:
-        try:
-            with open("dati_default.csv", "rb") as f:
-                raw_bytes = f.read()
-            source_label = "dati_default.csv locale"
-        except FileNotFoundError:
-            return None, None, "Nessun file caricato e 'dati_default.csv' non trovato."
-
+    """Legge e normalizza il CSV selezionato dall'utente nella sessione corrente."""
+    if uploaded_file is None:
+        return None, None, "Nessun CSV caricato."
     try:
-        df = _read_and_normalize(raw_bytes, source_label)
-        return df, source_label, None
-    except ValueError as e:
-        # Colonne mancanti o simili: messaggio parlante invece del traceback pandas
-        return None, source_label, f"CSV non valido: {e}"
-    except Exception as e:
-        return None, source_label, (
-            f"Errore lettura/normalizzazione ({source_label}): {e}. "
-            "Controlla che il file usi ';' come separatore e ',' come decimale, "
-            "e che la prima riga sia un'intestazione stagione da saltare."
-        )
+        return _read_and_normalize(uploaded_file.getvalue(), "file caricato"), "file caricato", None
+    except ValueError as exc:
+        return None, "file caricato", f"CSV non valido: {exc}"
+    except Exception as exc:
+        return None, "file caricato", f"Errore durante la lettura del CSV: {exc}"
+
+
+def clear_analysis_cache() -> None:
+    _read_and_normalize.clear()
+    cached_compute_table.clear()
+    cached_adaptive_calibration.clear()
 
 
 @st.cache_data(show_spinner=False)
@@ -355,9 +362,7 @@ def cached_adaptive_calibration(df: pd.DataFrame):
 
 def refresh_csv_analysis():
     """Forza il ricalcolo non appena l'utente sceglie un nuovo CSV."""
-    _read_and_normalize.clear()
-    cached_compute_table.clear()
-    cached_adaptive_calibration.clear()
+    clear_analysis_cache()
 
 
 # ---------------- Sidebar ----------------
@@ -368,12 +373,7 @@ with st.sidebar:
         type=["csv"],
         key="matchscope_csv_upload",
         on_change=refresh_csv_analysis,
-        help="Il file viene analizzato immediatamente dopo la selezione. Se non ne carichi uno, viene usato 'dati_default.csv' locale.",
-    )
-    st.code(
-        "date;home_team;away_team;home_score;away_score\n"
-        "2024-08-17;Juventus;Roma;3;0",
-        language="csv",
+        help="Il file viene analizzato subito dopo la selezione.",
     )
     st.divider()
     win = st.number_input("Punti vittoria", 0, 5, 3)
@@ -390,16 +390,16 @@ with st.sidebar:
         help="Filtra i dati per calcolare le statistiche solo sulle partite più recenti.",
     )
 
-# ---------------- Lettura & normalizzazione ----------------
+# ---------------- Lettura CSV ----------------
 df_normalized, source_label, error_message = load_data(up)
 
 if source_label:
-    st.sidebar.info(f"Dati caricati da: {source_label}")
+    st.sidebar.success("CSV caricato correttamente.")
 if error_message:
-    st.sidebar.warning(error_message)
+    st.sidebar.error(error_message)
 
 if df_normalized is None:
-    st.info("👆 Carica un CSV valido o aggiungi 'dati_default.csv' alla cartella per iniziare.")
+    st.info("👆 Carica un CSV nella barra laterale per iniziare.")
     st.stop()
 
 if df_normalized.empty:
@@ -489,8 +489,24 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # ========== TAB 1: Classifica ==========
 with tab1:
     st.subheader("Classifica totale e Statistiche")
-    st.dataframe(table, use_container_width=True, hide_index=True)
-    st.caption("PPG = punti per partita, WinRate = % vittorie. Scorri per vedere tiri, corner e altre statistiche.")
+    primary_columns = ["Pos", "team", "Pts", "GP", "W", "D", "L", "GF", "GA", "GD", "PPG", "WinRate"]
+    ordered_columns = [column for column in primary_columns if column in table.columns]
+    ordered_columns.extend(
+        column for column in table.columns
+        if column not in ordered_columns and "red" not in column.casefold() and "ross" not in column.casefold()
+    )
+    standings_view = table[ordered_columns].rename(columns={
+        "Pos": "Pos.", "team": "Squadra", "Pts": "Punti", "GP": "PG",
+        "W": "V", "D": "N", "L": "P", "GF": "GF", "GA": "GS",
+        "GD": "DR", "PPG": "PPG", "WinRate": "Vittorie %",
+    })
+    standings_style = standings_view.style.format({
+        "PPG": "{:.2f}", "Vittorie %": "{:.1f}%",
+    }).set_properties(
+        subset=["Punti"], **{"font-weight": "700", "color": "#8a5b00"}
+    )
+    st.dataframe(standings_style, use_container_width=True, hide_index=True)
+    st.caption("Punti in evidenza · PG = partite giocate · DR = differenza reti. Scorri per tiri, corner e altre statistiche.")
 
 # ========== TAB 2: Previsioni ==========
 with tab2:
@@ -532,11 +548,6 @@ with tab2:
         oneXtwo = predict_1x2_from_matrix(P)
         oneXtwo_pct = {k: round(v * 100, 1) for k, v in oneXtwo.items()}
 
-        colm = st.columns(3)
-        colm[0].metric("Probabilità 1", f"{oneXtwo_pct['1']}%")
-        colm[1].metric("Probabilità X", f"{oneXtwo_pct['X']}%")
-        colm[2].metric("Probabilità 2", f"{oneXtwo_pct['2']}%")
-
         suggestions = match_recommendations(oneXtwo, {**gd["ou"], "btts": gd["btts"]})
         st.subheader("Indicazioni per questa partita")
         st.caption("Non sono certezze: ogni indicazione cambia con la coppia casa/trasferta e con lo storico selezionato.")
@@ -559,15 +570,33 @@ with tab2:
                 textinfo="label+percent",
             )
         )
-        fig.update_layout(height=360, margin=dict(l=0, r=0, t=30, b=0))
+        fig.update_layout(title="Probabilità esito 1X2", height=360, margin=dict(l=0, r=0, t=45, b=0))
         st.plotly_chart(fig, use_container_width=True)
         st.caption("Probabilità 1X2 ottenute da gol reali, fattore casa e forma recente.")
 
         st.divider()
         st.subheader("Motore del pronostico")
-        sub = st.columns(2)
-        sub[0].metric(f"{pred_home} gol stimati", f"{gd['lambda_home']:.2f}")
-        sub[1].metric(f"{pred_away} gol stimati", f"{gd['lambda_away']:.2f}")
+        home_goals_estimate = float(gd["lambda_home"])
+        away_goals_estimate = float(gd["lambda_away"])
+        mirror_limit = max(home_goals_estimate, away_goals_estimate) * 1.35
+        goals_mirror_fig = go.Figure()
+        goals_mirror_fig.add_bar(
+            name=pred_home, y=["Gol stimati"], x=[-home_goals_estimate], orientation="h",
+            marker_color="#c58b10", text=[f"{home_goals_estimate:.2f}"], textposition="outside", textangle=0,
+        )
+        goals_mirror_fig.add_bar(
+            name=pred_away, y=["Gol stimati"], x=[away_goals_estimate], orientation="h",
+            marker_color="#4f7d9d", text=[f"{away_goals_estimate:.2f}"], textposition="outside", textangle=0,
+        )
+        goals_mirror_fig.update_layout(
+            title="Confronto gol stimati", barmode="overlay", height=230,
+            margin=dict(l=0, r=25, t=45, b=0),
+            xaxis=dict(range=[-mirror_limit, mirror_limit], showticklabels=False, zeroline=True, zerolinecolor="#64748b"),
+            yaxis=dict(showticklabels=False, title=None),
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            legend_title_text="Squadra",
+        )
+        st.plotly_chart(goals_mirror_fig, use_container_width=True)
 
         volume_metrics = [
             ("Corner previsti", "home_corners", "away_corners"),
@@ -605,18 +634,28 @@ with tab2:
                         f"{pred_away}: **{away_estimate:.1f}**"
                     )
 
-        tot = gd["total_goals_dist"]
-        tot_labels = [str(i) for i in range(len(tot))]
-        st.subheader("Distribuzione dei gol attesi")
-        st.bar_chart(pd.DataFrame({"TotGoals%": (tot * 100).round(2)}, index=tot_labels))
-
         st.subheader("📊 Probabilità mercati gol")
         ou_dict = gd["ou"]
-        ou_df = pd.DataFrame({
-            "Mercato": list(ou_dict.keys()),
-            "Probabilità": [f"{p * 100:.1f}%" for p in ou_dict.values()],
-        })
-        st.dataframe(ou_df, use_container_width=True, hide_index=True)
+        ou_labels = list(ou_dict.keys())
+        ou_values = [float(probability * 100) for probability in ou_dict.values()]
+        market_fig = go.Figure(go.Bar(
+            x=ou_values,
+            y=ou_labels,
+            orientation="h",
+            marker_color=["#c58b10" if label.startswith("Over") else "#4f7d9d" for label in ou_labels],
+            text=[f"{value:.1f}%" for value in ou_values],
+            textposition="auto",
+        ))
+        market_fig.update_layout(
+            height=360,
+            margin=dict(l=0, r=25, t=15, b=0),
+            xaxis=dict(range=[0, 100], title="Probabilità (%)"),
+            yaxis=dict(autorange="reversed", title=None),
+            showlegend=False,
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(market_fig, use_container_width=True)
 
         st.subheader("⚽ Entrambe le squadre segnano")
         btts = float(gd.get("btts", 0.0))
@@ -637,7 +676,25 @@ with tab2:
             "Score": [f"{pred_home} {i}-{j} {pred_away}" for i, j, _ in top5],
             "Probabilità": [f"{p * 100:.1f}%" for _, _, p in top5],
         })
-        st.table(top5_df)
+        score_values = [float(p * 100) for _, _, p in top5]
+        score_fig = go.Figure(go.Bar(
+            x=score_values,
+            y=top5_df["Score"],
+            orientation="h",
+            marker_color="#c58b10",
+            text=top5_df["Probabilità"],
+            textposition="outside",
+            textangle=0,
+        ))
+        score_fig.update_layout(
+            title="I 5 risultati esatti più probabili",
+            height=300,
+            margin=dict(l=0, r=35, t=45, b=0),
+            xaxis=dict(range=[0, max(score_values) * 1.25], title="Probabilità (%)"),
+            yaxis=dict(autorange="reversed", title=None),
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(score_fig, use_container_width=True)
 
 # ========== TAB 3: Scheda Squadra ==========
 with tab3:
@@ -651,9 +708,22 @@ with tab3:
         team_matches_view = (
             team_matches
             .sort_values("date")
-            [[c for c in df.columns if c not in ["competition", "round", "season", "home_xg", "away_xg"]]]
+            [[
+                column for column in df.columns
+                if column not in ["competition", "round", "season", "home_xg", "away_xg"]
+                and "red" not in column.casefold() and "ross" not in column.casefold()
+            ]]
         )
-        st.dataframe(team_matches_view, use_container_width=True, hide_index=True)
+        team_matches_view = team_matches_view.copy()
+        team_matches_view["date"] = pd.to_datetime(team_matches_view["date"]).dt.strftime("%d/%m/%Y")
+        # Trattandola esplicitamente come testo Streamlit non applica il proprio
+        # formato locale (mm/gg/aaaa) alla colonna già formattata in italiano.
+        st.dataframe(
+            team_matches_view,
+            use_container_width=True,
+            hide_index=True,
+            column_config={"date": st.column_config.TextColumn("Data")},
+        )
         st.caption(
             f"Partite mostrate (basate sul filtro di {days_window} giorni): {len(team_matches_view)}"
         )
@@ -662,13 +732,28 @@ with tab3:
         if row.empty:
             st.info("Squadra non trovata in classifica.")
         else:
-            st.subheader("Statistiche totali (dal DataFrame classifica)")
-            st.dataframe(row.T, use_container_width=True)
-
             def get_stat(r, col_name, default=0.0):
                 return r[col_name].iloc[0] if col_name in r.columns else default
 
             GP = int(get_stat(row, "GP", 0))
+            st.subheader("Statistiche totali")
+            total_metrics = [
+                ("Partite", f"{GP}"),
+                ("Punti", f"{int(get_stat(row, 'Pts', 0))}"),
+                ("Punti per gara", f"{get_stat(row, 'PPG', 0):.2f}"),
+                ("Vittorie", f"{int(get_stat(row, 'W', 0))}"),
+                ("Pareggi", f"{int(get_stat(row, 'D', 0))}"),
+                ("Sconfitte", f"{int(get_stat(row, 'L', 0))}"),
+                ("Gol fatti", f"{int(get_stat(row, 'GF', 0))}"),
+                ("Gol subiti", f"{int(get_stat(row, 'GA', 0))}"),
+                ("Differenza reti", f"{int(get_stat(row, 'GD', 0)):+d}"),
+                ("Vittorie %", f"{get_stat(row, 'WinRate', 0):.1f}%"),
+            ]
+            for start in range(0, len(total_metrics), 5):
+                total_columns = st.columns(5)
+                for column, (label, value) in zip(total_columns, total_metrics[start:start + 5]):
+                    with column:
+                        st.metric(label, value)
 
             # Queste medie si possono calcolare sempre dai risultati ufficiali
             # e sono perciò disponibili anche con la sorgente football-data.
@@ -682,18 +767,22 @@ with tab3:
             over_25 = (
                 (team_matches["home_score"] + team_matches["away_score"] >= 3)
             ).mean() if GP else 0.0
+            total_shots = float(get_stat(row, "ShotsF", 0))
+            shots_on_target = float(get_stat(row, "StF", 0))
+            shooting_accuracy = (shots_on_target / total_shots * 100) if total_shots > 0 else None
 
             st.subheader("Medie dai risultati")
-            core_a, core_b, core_c, core_d = st.columns(4)
+            core_a, core_b, core_c, core_d, core_e = st.columns(5)
             core_a.metric("Gol fatti / gara", f"{GF / GP:.2f}" if GP else "–")
             core_b.metric("Gol subiti / gara", f"{GA / GP:.2f}" if GP else "–")
             core_c.metric("Clean sheet", f"{clean_sheets / GP * 100:.0f}%" if GP else "–")
             core_d.metric("Over 2.5 / BTTS", f"{over_25 * 100:.0f}% / {both_score * 100:.0f}%" if GP else "–")
+            core_e.metric("Precisione tiri", f"{shooting_accuracy:.1f}%" if shooting_accuracy is not None else "–")
 
             st.subheader("Statistiche medie (per partita)")
             advanced_available = advanced_stats_available
             if not advanced_available:
-                st.info("Possesso, tiri, corner e cartellini non sono inclusi nei risultati di football-data.org. Per queste metriche avanzate carica il tuo CSV.")
+                st.info("Il tuo archivio non contiene ancora possesso, tiri, corner o cartellini per questa squadra.")
             else:
                 # Inserimento per righe, non per colonne: così ogni riquadro
                 # riempie il primo spazio libero e la griglia resta compatta.
@@ -706,7 +795,6 @@ with tab3:
                     ("Cartellini gialli (totali)", f"{int(get_stat(row, 'Yellow', 0))}"),
                     ("Tiri in porta fatti / gara", f"{get_stat(row, 'StF_pG', 0):.1f}"),
                     ("Corner fatti / gara", f"{get_stat(row, 'CornersF_pG', 0):.1f}"),
-                    ("Cartellini rossi (totali)", f"{int(get_stat(row, 'Red', 0))}"),
                 ]
                 for start in range(0, len(advanced_metrics), 3):
                     metric_columns = st.columns(3)
@@ -714,20 +802,11 @@ with tab3:
                         with metric_column:
                             st.metric(label, value)
 
-            st.subheader("Ripartizione esiti stagione")
+            st.subheader("Riepilogo stagione")
             if GP > 0:
                 W = int(get_stat(row, "W", 0))
                 D = int(get_stat(row, "D", 0))
                 L = int(get_stat(row, "L", 0))
-
-                fig_pie = go.Figure(go.Pie(
-                    labels=["Vittorie (W)", "Pareggi (D)", "Sconfitte (L)"],
-                    values=[W, D, L],
-                    textinfo="label+percent",
-                    hole=0.25,
-                ))
-                fig_pie.update_layout(height=320, margin=dict(l=0, r=0, t=30, b=0))
-                st.plotly_chart(fig_pie, use_container_width=True)
 
                 c1_p, c2_p, c3_p, c4_p = st.columns(4)
                 with c1_p: st.metric("Partite", GP)
@@ -902,7 +981,30 @@ with tab2:
 
             h2h_df = pd.DataFrame(rows)
             st.subheader("Confronto statistico")
-            st.dataframe(h2h_df, use_container_width=True, hide_index=True)
+            chart_home = pd.to_numeric(
+                h2h_df[colA].astype(str).str.replace("%", "", regex=False), errors="coerce"
+            ).fillna(0)
+            chart_away = pd.to_numeric(
+                h2h_df[colB].astype(str).str.replace("%", "", regex=False), errors="coerce"
+            ).fillna(0)
+            comparison_fig = go.Figure()
+            comparison_fig.add_bar(
+                name=colA, y=h2h_df["Statistica"], x=chart_home, orientation="h",
+                marker_color="#c58b10", text=h2h_df[colA], textposition="outside", textangle=0,
+            )
+            comparison_fig.add_bar(
+                name=colB, y=h2h_df["Statistica"], x=chart_away, orientation="h",
+                marker_color="#4f7d9d", text=h2h_df[colB], textposition="outside", textangle=0,
+            )
+            comparison_fig.update_layout(
+                barmode="group", height=max(420, len(h2h_df) * 52),
+                margin=dict(l=0, r=25, t=15, b=0),
+                xaxis_title="Valore medio / totale",
+                yaxis=dict(autorange="reversed", title=None),
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                legend_title_text="Squadra",
+            )
+            st.plotly_chart(comparison_fig, use_container_width=True)
 
 # ---------------- Export Excel ----------------
 if st.button("Scarica Report Excel"):

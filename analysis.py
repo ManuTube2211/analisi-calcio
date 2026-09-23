@@ -29,7 +29,6 @@ OPTIONAL_NUMERIC_COLS = [
     "home_shots_on_target", "away_shots_on_target",
     "home_corners", "away_corners",
     "home_yellow", "away_yellow",
-    "home_red", "away_red",
 ]
  
 REQUIRED_COLS = ["date", "home_team", "away_team", "home_score", "away_score"]
@@ -56,6 +55,12 @@ def normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     # 1) Pulizia nomi colonna
     df.columns = [c.strip() for c in df.columns]
     df.rename(columns=RENAME_MAP, inplace=True)
+    # I cartellini rossi non fanno parte delle statistiche gestite dall'app.
+    red_card_columns = [
+        column for column in df.columns
+        if "red" in column.casefold() or "ross" in column.casefold()
+    ]
+    df.drop(columns=red_card_columns, errors="ignore", inplace=True)
  
     # 2) Controllo colonne obbligatorie
     missing = [c for c in REQUIRED_COLS if c not in df.columns]
@@ -141,7 +146,7 @@ def compute_table(df: pd.DataFrame, schema: PointSchema = PointSchema()) -> pd.D
         "home_shots": "shots_f", "away_shots": "shots_a",
         "home_shots_on_target": "st_f", "away_shots_on_target": "st_a",
         "home_corners": "corners_f", "away_corners": "corners_a",
-        "home_yellow": "yellow_f", "home_red": "red_f",
+        "home_yellow": "yellow_f",
     }
     col_map_away = {
         "away_team": "team", "away_score": "gf", "home_score": "ga",
@@ -149,7 +154,7 @@ def compute_table(df: pd.DataFrame, schema: PointSchema = PointSchema()) -> pd.D
         "away_shots": "shots_f", "home_shots": "shots_a",
         "away_shots_on_target": "st_f", "home_shots_on_target": "st_a",
         "away_corners": "corners_f", "home_corners": "corners_a",
-        "away_yellow": "yellow_f", "away_red": "red_f",
+        "away_yellow": "yellow_f",
     }
  
     h = df[list(col_map_home.keys())].rename(columns=col_map_home)
@@ -167,7 +172,7 @@ def compute_table(df: pd.DataFrame, schema: PointSchema = PointSchema()) -> pd.D
         ShotsF=("shots_f", "sum"), ShotsA=("shots_a", "sum"),
         StF=("st_f", "sum"), StA=("st_a", "sum"),
         CornersF=("corners_f", "sum"), CornersA=("corners_a", "sum"),
-        Yellow=("yellow_f", "sum"), Red=("red_f", "sum"),
+        Yellow=("yellow_f", "sum"),
         PossAvg=("poss_f", "mean"),
     )
  
